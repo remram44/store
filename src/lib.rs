@@ -1,4 +1,5 @@
 mod hash;
+pub mod storage;
 pub mod storage_map;
 
 use std::fmt::Debug;
