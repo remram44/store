@@ -70,7 +70,7 @@ pub fn compute_location(node: &Node, object_id: &ObjectId, replica_id: u32) -> D
 
 fn draw_straw(object_id: &ObjectId, replica_num: u32, level: u32, idx: usize, weight: u32) -> u32 {
     let hash = compute_hash(level, object_id, replica_num, idx);
-    (hash % 0x1000) * weight
+    hash % weight
 }
 
 fn compute_location_level(node: &Node, object_id: &ObjectId, replica_num: u32, level: u32) -> DeviceId {
@@ -121,10 +121,41 @@ fn compute_location_level(node: &Node, object_id: &ObjectId, replica_num: u32, l
     }
 }
 
+pub fn build_straw_bucket(input: &[(u32, Node)]) -> Bucket {
+    // Sort weights from highest to lowest
+    let mut order: Vec<usize> = (0..input.len()).collect();
+    order.sort_by_key(|&i| -(input[i].0 as i32));
+
+    // Turn given weights into probabilities
+    let total: u32 = input.iter().map(|i| i.0).sum();
+    let probs: Vec<f64> = (0..input.len()).map(|i| input[order[i]].0 as f64 / total as f64).collect();
+
+    // Compute factors for desired probabilities
+    let mut weights: Vec<u32> = vec![0; input.len()];
+    weights[order[0]] = 0x100000;
+    let mut mult = 1.0;
+    for i in 1..input.len() {
+        weights[order[i]] = (weights[order[i - 1]] as f32 * (1.0 - i as f32 * mult * (probs[i - 1] - probs[i]) as f32).powf(1.0 / i as f32)) as u32;
+        mult *= (weights[order[i - 1]] as f32 / weights[order[i]] as f32).powf(i as f32);
+    }
+
+    // Build result
+    let children = input.into_iter().enumerate().map(
+        |(i, (_, c))| NodeEntry {
+            weight: weights[i],
+            node: c.clone(),
+        }
+    ).collect();
+    Bucket {
+        algorithm: Algorithm::Straw,
+        children: children,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write;
-    use super::{Algorithm, Bucket, DeviceId, Node, NodeEntry, ObjectId, compute_location};
+    use super::{Algorithm, Bucket, DeviceId, Node, NodeEntry, ObjectId, build_straw_bucket, compute_location};
 
     #[test]
     fn test_deviceid_debug() {
@@ -228,33 +259,22 @@ mod tests {
 
     #[test]
     fn test_straw() {
-        let root = Node::Bucket(
-            Bucket {
-                algorithm: Algorithm::Straw,
-                children: vec![
-                    NodeEntry {
-                        weight: 659,
-                        node: Node::Device(DeviceId([1; 16])),
-                    },
-                    NodeEntry {
-                        weight: 900,
-                        node: Node::Device(DeviceId([2; 16])),
-                    },
-                    NodeEntry {
-                        weight: 1000,
-                        node: Node::Device(DeviceId([3; 16])),
-                    },
-                    NodeEntry {
-                        weight: 794,
-                        node: Node::Device(DeviceId([4; 16])),
-                    },
-                ],
-            }
-        );
+        let root = build_straw_bucket(&[
+            (1, Node::Device(DeviceId([1; 16]))),
+            (3, Node::Device(DeviceId([2; 16]))),
+            (4, Node::Device(DeviceId([3; 16]))),
+            (2, Node::Device(DeviceId([4; 16]))),
+        ]);
+        assert_eq!(root.children[0].weight, 690648);
+        assert_eq!(root.children[1].weight, 943718);
+        assert_eq!(root.children[2].weight, 1048576);
+        assert_eq!(root.children[3].weight, 832281);
+
+        let root = Node::Bucket(root);
         let target = [0.1, 0.3, 0.4, 0.2];
 
         let mut counts = [0; 4];
-        const NUM: usize = 100000;
+        const NUM: usize = 1000000;
         for i in 0..NUM {
             let mut object = [0; 16];
             object[15] = i as u8;
