@@ -1,4 +1,8 @@
+mod hash;
+
 use std::fmt::Debug;
+
+use hash::compute_hash;
 
 #[derive(Clone)]
 pub struct DeviceId(pub [u8; 16]);
@@ -53,15 +57,6 @@ pub enum Algorithm {
     Uniform,
     Straw,
     List,
-}
-
-fn compute_hash(level: u32, object_id: &ObjectId, replica_num: u32, idx: usize) -> u32 {
-    use std::hash::{Hash, Hasher};
-
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    (level, object_id, replica_num, idx).hash(&mut h);
-    let r: u64 = h.finish();
-    return r as u32
 }
 
 pub fn compute_location(node: &Node, object_id: &ObjectId, replica_id: u32) -> DeviceId {
