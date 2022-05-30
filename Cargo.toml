@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+aes = "0.8"
+byteorder = "1.4"
 fxhash = "0.2"
+hmac = "0.12"
+sha2 = "0.10"

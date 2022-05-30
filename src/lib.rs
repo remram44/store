@@ -1,3 +1,4 @@
+pub mod crypto;
 mod hash;
 pub mod storage;
 pub mod storage_map;
