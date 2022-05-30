@@ -30,16 +30,19 @@ impl Debug for ObjectId {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum Node {
     Device(DeviceId),
     Bucket(Bucket),
 }
 
+#[derive(Clone, Debug)]
 pub struct Bucket {
     pub algorithm: Algorithm,
     pub children: Vec<NodeEntry>,
 }
 
+#[derive(Clone, Debug)]
 pub struct NodeEntry {
     pub weight: u32,
     pub node: Node,
