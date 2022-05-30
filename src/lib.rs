@@ -8,29 +8,21 @@ use std::fmt::Debug;
 pub struct DeviceId(pub [u8; 16]);
 
 #[derive(Clone, Hash)]
-pub struct ObjectId(pub [u8; 16]);
-
-pub fn print_u8_16(f: &mut std::fmt::Formatter, array: &[u8; 16]) -> std::fmt::Result {
-    write!(f, "{:02x}", array[0])?;
-    for b in &array[1..] {
-        write!(f, ":{:02x}", b)?;
-    }
-    Ok(())
-}
+pub struct ObjectId(pub Vec<u8>);
 
 impl Debug for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "DeviceId(")?;
-        print_u8_16(f, &self.0)?;
+        write!(f, "DeviceId({:02x}", self.0[0])?;
+        for b in &self.0[1..] {
+            write!(f, ":{:02x}", b)?;
+        }
         write!(f, ")")
     }
 }
 
 impl Debug for ObjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "ObjectId(")?;
-        print_u8_16(f, &self.0)?;
-        write!(f, ")")
+        write!(f, "ObjectId({})", String::from_utf8_lossy(&self.0))
     }
 }
 

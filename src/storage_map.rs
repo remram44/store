@@ -118,6 +118,15 @@ pub fn build_straw_bucket(input: &[(u32, Node)]) -> Bucket {
 mod tests {
     use super::{Algorithm, Bucket, DeviceId, Node, NodeEntry, ObjectId, build_straw_bucket, compute_location};
 
+    fn object_id(num: usize) -> ObjectId {
+        ObjectId(vec![
+            num as u8,
+            (num >> 8) as u8,
+            (num >> 16) as u8,
+            (num >> 24) as u8,
+        ])
+    }
+
     fn assert_frequencies(counts: &[usize], target: &[f32]) {
         assert_eq!(counts.len(), target.len());
         let total: usize = counts.iter().sum();
@@ -156,12 +165,7 @@ mod tests {
         let mut counts = [0; 3];
         const NUM: usize = 100000;
         for i in 0..NUM {
-            let mut object = [0; 16];
-            object[15] = i as u8;
-            object[14] = (i >> 8) as u8;
-            object[13] = (i >> 16) as u8;
-            object[12] = (i >> 24) as u8;
-            let device = compute_location(&root, &ObjectId(object), 0);
+            let device = compute_location(&root, &object_id(i), 0);
             counts[device.0[0] as usize - 1] += 1;
         }
 
@@ -198,12 +202,7 @@ mod tests {
         let mut counts = [0; 4];
         const NUM: usize = 100000;
         for i in 0..NUM {
-            let mut object = [0; 16];
-            object[15] = i as u8;
-            object[14] = (i >> 8) as u8;
-            object[13] = (i >> 16) as u8;
-            object[12] = (i >> 24) as u8;
-            let device = compute_location(&root, &ObjectId(object), 0);
+            let device = compute_location(&root, &object_id(i), 0);
             counts[device.0[0] as usize - 1] += 1;
         }
 
@@ -229,12 +228,7 @@ mod tests {
         let mut counts = [0; 4];
         const NUM: usize = 1000000;
         for i in 0..NUM {
-            let mut object = [0; 16];
-            object[15] = i as u8;
-            object[14] = (i >> 8) as u8;
-            object[13] = (i >> 16) as u8;
-            object[12] = (i >> 24) as u8;
-            let device = compute_location(&root, &ObjectId(object), 0);
+            let device = compute_location(&root, &object_id(i), 0);
             counts[device.0[0] as usize - 1] += 1;
         }
 
