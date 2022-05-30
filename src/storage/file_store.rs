@@ -18,7 +18,11 @@ impl FileStore {
 }
 
 fn encode_object_id(object_id: ObjectId) -> String {
-    todo!()
+    let mut result = Vec::new();
+    for b in &object_id.0 {
+        write!(result, "{:02x}", b).unwrap();
+    }
+    String::from_utf8(result).unwrap()
 }
 
 impl StorageBackend for FileStore {
@@ -55,5 +59,19 @@ impl StorageBackend for FileStore {
         file.seek(SeekFrom::Start(offset as u64))?;
         file.write_all(data)?;
         file.set_len((offset + data.len()) as u64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ObjectId;
+    use super::encode_object_id;
+
+    #[test]
+    fn test_encode() {
+        assert_eq!(
+            encode_object_id(ObjectId((b"hello\0world!" as &[u8]).to_owned())),
+            "68656c6c6f00776f726c6421",
+        );
     }
 }
