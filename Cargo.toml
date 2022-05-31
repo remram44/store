@@ -17,5 +17,5 @@ hmac = "0.12"
 log = "0.4"
 rustls-pemfile = "0.2"
 sha2 = "0.10"
-tokio = { version = "1.18", features = ["io-util", "net", "rt"] }
+tokio = { version = "1.18", features = ["io-util", "macros", "net", "rt"] }
 tokio-rustls = "0.23"

@@ -79,10 +79,30 @@ pub async fn run_master(
             .with_single_cert(certs, key)
             .map_err(|err| IoError::new(ErrorKind::InvalidInput, err))?;
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        serve_clients(listener, acceptor, master.clone())
+        tokio::spawn(serve_clients(listener, acceptor, master.clone()))
     };
 
-    clients_fut.await?;
+    let peers_fut = {
+        info!("Listening for peer connections on {}", peer_address);
+        let listener: TcpListener = TcpListener::bind(&peer_address).await?;
+        let certs = load_certs(peer_cert)?;
+        let key = load_key(peer_key)?;
+        let mut ca = rustls::RootCertStore::empty();
+        ca.add(&load_certs(peer_ca_cert)?.remove(0))?;
+        let client_verifier = rustls::server::AllowAnyAuthenticatedClient::new(ca);
+        let config = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_client_cert_verifier(client_verifier)
+            .with_single_cert(certs, key)
+            .map_err(|err| IoError::new(ErrorKind::InvalidInput, err))?;
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+        tokio::spawn(serve_peers(listener, acceptor, master.clone()))
+    };
+
+    tokio::select! {
+        _ = clients_fut => {}
+        _ = peers_fut => {}
+    };
 
     Ok(())
 }
@@ -91,6 +111,20 @@ async fn serve_clients(listener: TcpListener, acceptor: TlsAcceptor, master: Arc
     loop {
         let (stream, peer_addr) = listener.accept().await?;
         info!("Client connected from {}", peer_addr);
+        let acceptor = acceptor.clone();
+        tokio::spawn(async move {
+            let mut stream = acceptor.accept(stream).await?;
+            stream.write_all(b"Hello").await?;
+            stream.shutdown().await?;
+            Ok(()) as Result<(), IoError>
+        });
+    }
+}
+
+async fn serve_peers(listener: TcpListener, acceptor: TlsAcceptor, master: Arc<Mutex<Master>>) -> Result<(), IoError> {
+    loop {
+        let (stream, peer_addr) = listener.accept().await?;
+        info!("Peer connected from {}", peer_addr);
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             let mut stream = acceptor.accept(stream).await?;
