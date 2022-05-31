@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::Path;
 
 use crate::DeviceId;
 use crate::storage_map;
@@ -20,4 +21,16 @@ pub struct Master {
 
 struct StorageDaemon {
     address: SocketAddr,
+}
+
+pub async fn run_master(
+    peer_address: SocketAddr,
+    peer_cert: &Path,
+    peer_key: &Path,
+    peer_ca_cert: &Path,
+    listen_address: SocketAddr,
+    listen_cert: &Path,
+    listen_key: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
 }

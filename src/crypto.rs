@@ -13,6 +13,7 @@ use aes::cipher::{BlockEncrypt, KeyInit};
 use aes::cipher::generic_array::GenericArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hmac::{Hmac, Mac};
+use log::warn;
 use sha2::Sha256;
 use std::io::Cursor;
 
@@ -128,11 +129,11 @@ impl KeyPair {
         result.clear();
 
         if data.len() < 4 + SIZE + MAC_SIZE {
-            eprintln!("decrypt: missing MAC (size={})", data.len());
+            warn!("decrypt: missing MAC (size={})", data.len());
             return None;
         }
         if data.len() % SIZE != (4 + MAC_SIZE) % SIZE {
-            eprintln!("decrypt: wrong size ({})", data.len());
+            warn!("decrypt: wrong size ({})", data.len());
             return None;
         }
 
@@ -142,7 +143,7 @@ impl KeyPair {
         match mac.verify_slice(&data[data.len() - MAC_SIZE..]) {
             Ok(()) => {}
             Err(_) => {
-                eprintln!("Invalid MAC");
+                warn!("Invalid MAC");
                 return None;
             }
         }
@@ -150,7 +151,7 @@ impl KeyPair {
         // Read counter
         let mut counter = Cursor::new(&data).read_u32::<BigEndian>().unwrap();
         if counter < min_counter {
-            eprintln!("Invalid counter");
+            warn!("Invalid counter");
             return None;
         }
 
@@ -185,7 +186,7 @@ impl KeyPair {
         }
 
         if data.len() - pos != MAC_SIZE {
-            eprintln!("Invalid size left over");
+            warn!("Invalid size left over");
             return None;
         }
 
