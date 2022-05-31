@@ -1,5 +1,7 @@
+pub mod client;
 pub mod crypto;
 mod hash;
+pub mod master;
 pub mod storage;
 pub mod storage_map;
 
