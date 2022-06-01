@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, remove_file};
 use std::io::{Error as IoError, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
@@ -59,6 +59,12 @@ impl StorageBackend for FileStore {
         file.seek(SeekFrom::Start(offset as u64))?;
         file.write_all(data)?;
         file.set_len((offset + data.len()) as u64)
+    }
+
+    fn delete_object(&mut self, object_id: ObjectId) -> Result<(), IoError> {
+        let enc_id = encode_object_id(object_id);
+        let path = self.path.join(enc_id);
+        remove_file(path)
     }
 }
 

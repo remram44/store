@@ -17,4 +17,7 @@ pub trait StorageBackend {
 
     /// Overwrite part of an object
     fn write_part(&mut self, object_id: ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError>;
+
+    /// Delete an object
+    fn delete_object(&mut self, object_id: ObjectId) -> Result<(), IoError>;
 }
