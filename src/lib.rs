@@ -11,7 +11,7 @@ use std::fmt::Debug;
 #[derive(Clone)]
 pub struct DeviceId(pub [u8; 16]);
 
-#[derive(Clone, Hash)]
+#[derive(Clone)]
 pub struct ObjectId(pub Vec<u8>);
 
 impl Debug for DeviceId {
