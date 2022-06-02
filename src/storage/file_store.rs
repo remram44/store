@@ -10,7 +10,7 @@ pub struct FileStore {
 }
 
 impl FileStore {
-    pub fn new(path: PathBuf) -> FileStore {
+    pub fn open(path: PathBuf) -> FileStore {
         FileStore {
             path,
         }

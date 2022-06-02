@@ -15,6 +15,7 @@ env_logger = "0.6"
 fxhash = "0.2"
 hmac = "0.12"
 log = "0.4"
+rand = "0.8"
 rustls-pemfile = "0.2"
 sha2 = "0.10"
 tokio = { version = "1.18", features = ["io-util", "macros", "net", "rt"] }
