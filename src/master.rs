@@ -79,7 +79,7 @@ pub async fn run_master(
             .with_single_cert(certs, key)
             .map_err(|err| IoError::new(ErrorKind::InvalidInput, err))?;
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        tokio::spawn(serve_clients(listener, acceptor, master.clone()))
+        serve_clients(listener, acceptor, master.clone())
     };
 
     let peers_fut = {
@@ -96,7 +96,7 @@ pub async fn run_master(
             .with_single_cert(certs, key)
             .map_err(|err| IoError::new(ErrorKind::InvalidInput, err))?;
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        tokio::spawn(serve_peers(listener, acceptor, master.clone()))
+        serve_peers(listener, acceptor, master.clone())
     };
 
     tokio::select! {
