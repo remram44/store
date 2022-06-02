@@ -8,11 +8,20 @@ pub mod storage_map;
 
 use std::fmt::Debug;
 
-#[derive(Clone)]
+/// The ID of a device, which also identifies the storage daemon for it.
+#[derive(Clone, PartialEq, Eq)]
 pub struct DeviceId(pub [u8; 16]);
 
-#[derive(Clone)]
+/// The name of an object, which can be freely picked by clients.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ObjectId(pub Vec<u8>);
+
+/// The ID for a group of objects.
+///
+/// Objects are assembled into groups using hashes. The procedure depends on
+/// the current number of groups, which changes over time.
+#[derive(Clone, PartialEq, Eq)]
+pub struct GroupId(pub u32);
 
 impl Debug for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -27,6 +36,12 @@ impl Debug for DeviceId {
 impl Debug for ObjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "ObjectId({})", String::from_utf8_lossy(&self.0))
+    }
+}
+
+impl Debug for GroupId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "GroupId(0x{:04x})", self.0)
     }
 }
 
