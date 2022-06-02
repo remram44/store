@@ -6,19 +6,19 @@ use crate::crypto::KeyPair;
 use crate::storage_map;
 
 pub struct Client {
-    /// Addresses of master server(s)
+    /// Addresses of master server(s).
     masters: Vec<SocketAddr>,
 
-    /// Connection to master server
+    /// Connection to master server.
     master_connection: TcpStream,
 
-    /// The single pool we care about
+    /// The single pool we care about.
     pool: String,
 
-    /// The storage map for the pool we care about
+    /// The storage map for the pool we care about.
     pool_storage_map: storage_map::Node,
 
-    /// The storage daemons
+    /// The storage daemons.
     storage_daemons: HashMap<DeviceId, StorageDaemon>,
 
     storage_daemon_key: KeyPair,

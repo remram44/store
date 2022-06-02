@@ -1,4 +1,4 @@
-//! A simple ASCII protocol
+//! A simple ASCII protocol.
 
 use std::fmt::Debug;
 

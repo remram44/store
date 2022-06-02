@@ -1,4 +1,4 @@
-//! Custom crypto for client -> storage messaging
+//! Custom crypto for client -> storage messaging.
 //!
 //! This is custom crypto code and I am sorry. It is unfortunate that this is
 //! currently here. I would rather use a third-party solution here, however I
@@ -17,7 +17,7 @@ use log::warn;
 use sha2::Sha256;
 use std::io::Cursor;
 
-/// A pair of keys: MAC and symmetric encryption
+/// A pair of keys: MAC and symmetric encryption.
 ///
 /// Currently using HMAC-SHA256 and AES128.
 pub struct KeyPair {
@@ -109,7 +109,7 @@ impl KeyPair {
         counter
     }
 
-    /// Authenticate and decrypt some data
+    /// Authenticate and decrypt some data.
     ///
     /// The function takes the current counter value, and returns the new
     /// value. That counter is used to prevent replay attacks; if the message
@@ -120,7 +120,7 @@ impl KeyPair {
         counter.map(|c| (result, c))
     }
 
-    /// Authenticate and decrypt some data
+    /// Authenticate and decrypt some data.
     ///
     /// The function takes the current counter value, and returns the new
     /// value. That counter is used to prevent replay attacks; if the message
