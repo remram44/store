@@ -1,4 +1,4 @@
-mod daemon;
+pub mod daemon;
 mod file_store;
 
 use std::io::Error as IoError;
