@@ -1,0 +1,13 @@
+[package]
+name = "store-nbd-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lazy_static = "1.2.0"
+libc = "0.2"
+nbdkit = "0.2.0"
+store = { version = "0.1", path = ".." }

@@ -298,6 +298,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nbdkit"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1714a86330e1c9446c6237647a9ae6aec58b5bdbd5fafce6c1c441936233c976"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -481,6 +491,16 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-rustls",
+]
+
+[[package]]
+name = "store-nbd-gateway"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "nbdkit",
+ "store",
 ]
 
 [[package]]

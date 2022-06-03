@@ -3,6 +3,9 @@ name = "store"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["nbd-gateway"]
+
 [[bin]]
 name = "store"
 path = "src/bin/main.rs"
