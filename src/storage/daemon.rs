@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 
-use crate::{DeviceId, ObjectId};
+use crate::{DeviceId, ObjectId, PoolName};
 use super::StorageBackend;
 use super::file_store::FileStore;
 
@@ -150,8 +150,17 @@ async fn handle_client_request(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex
 async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
     let mut reader = Cursor::new(&msg);
     let msg_ctr = reader.read_u32::<BigEndian>()?;
-    let command = reader.read_u8()?;
 
+    let pool_name = {
+        let name_len = reader.read_u32::<BigEndian>()? as usize;
+        let mut pool_name = vec![0; name_len];
+        reader.read_exact(&mut pool_name)?;
+        let pool_name = String::from_utf8(pool_name)
+            .map_err(|_| IoError::new(ErrorKind::InvalidData, "Invalid pool name"))?;
+        PoolName(pool_name)
+    };
+
+    let command = reader.read_u8()?;
     match command {
         0x01 => { // read_object
             let object_id = {
@@ -162,7 +171,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             };
             info!("read_object {:?}", object_id);
 
-            let object = storage_backend.read_object(object_id)?;
+            let object = storage_backend.read_object(&pool_name, object_id)?;
             let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             match object {
@@ -185,7 +194,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             let offset = reader.read_u32::<BigEndian>()?;
             let len = reader.read_u32::<BigEndian>()?;
 
-            let object = storage_backend.read_part(object_id, offset as usize, len as usize)?;
+            let object = storage_backend.read_part(&pool_name, object_id, offset as usize, len as usize)?;
             let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             match object {
@@ -207,7 +216,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             let data = &msg[reader.position() as usize..];
 
-            storage_backend.write_object(object_id, data)?;
+            storage_backend.write_object(&pool_name, object_id, data)?;
             let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             socket.send_to(&response, addr).await?;
@@ -223,7 +232,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             let offset = reader.read_u32::<BigEndian>()? as usize;
             let data = &msg[reader.position() as usize..];
 
-            storage_backend.write_part(object_id, offset, data)?;
+            storage_backend.write_part(&pool_name, object_id, offset, data)?;
             let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             socket.send_to(&response, addr).await?;

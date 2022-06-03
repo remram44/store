@@ -12,6 +12,10 @@ use std::fmt::Debug;
 #[derive(Clone, PartialEq, Eq)]
 pub struct DeviceId(pub [u8; 16]);
 
+/// The name of a storage pool.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolName(pub String);
+
 /// The name of an object, which can be freely picked by clients.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ObjectId(pub Vec<u8>);

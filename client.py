@@ -4,20 +4,31 @@ import sys
 
 
 def main(args):
-    if args[0] == 'read_object':
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    dest = args[0], int(args[1], 10)
+    command = args[2]
+    args = args[3:]
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    if command == 'read_object':
+        pool, object_id = args
         msg = struct.pack(
-            '>LBL',
+            '>LL',
             42,
-            0x01,
-            len(args[3]),
+            len(pool),
         )
-        msg += args[3].encode('utf-8')
+        msg += pool.encode('utf-8')
+        msg += struct.pack(
+            '>BL',
+            0x01,
+            len(object_id),
+        )
+        msg += object_id.encode('utf-8')
         print("Sending packet: %s size %d" % (
             ''.join('%02x,' % b for b in msg),
             len(msg)
         ))
-        sock.sendto(msg, (args[1], int(args[2], 10)))
+        sock.sendto(msg, dest)
         data, addr = sock.recvfrom(65536)
         print("Got response, size %d" % len(data))
         ctr, exist = struct.unpack('>LB', data[0:5])
@@ -27,25 +38,30 @@ def main(args):
         else:
             assert len(data) == 5
             print("Data doesn't exist")
-    elif args[0] == 'read_part':
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    elif command == 'read_part':
+        pool, object_id, offset, length = args
         msg = struct.pack(
-            '>LBL',
+            '>LL',
             42,
-            0x02,
-            len(args[3]),
+            len(pool),
         )
-        msg += args[3].encode('utf-8')
+        msg += pool.encode('utf-8')
+        msg += struct.pack(
+            '>BL',
+            0x02,
+            len(object_id),
+        )
+        msg += object_id.encode('utf-8')
         msg += struct.pack(
             '>LL',
-            int(args[4], 10),
-            int(args[5], 10),
+            int(offset, 10),
+            int(length, 10),
         )
         print("Sending packet: %s size %d" % (
             ''.join('%02x,' % b for b in msg),
             len(msg)
         ))
-        sock.sendto(msg, (args[1], int(args[2], 10)))
+        sock.sendto(msg, dest)
         data, addr = sock.recvfrom(65536)
         print("Got response, size %d" % len(data))
         ctr, exist = struct.unpack('>LB', data[0:5])
@@ -55,44 +71,54 @@ def main(args):
         else:
             assert len(data) == 5
             print("Data doesn't exist")
-    elif args[0] == 'write_object':
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    elif command == 'write_object':
+        pool, object_id, data = args
         msg = struct.pack(
-            '>LBL',
+            '>LL',
             42,
-            0x03,
-            len(args[3]),
+            len(pool),
         )
-        msg += args[3].encode('utf-8')
-        msg += args[4].encode('utf-8')
+        msg += pool.encode('utf-8')
+        msg += struct.pack(
+            '>BL',
+            0x03,
+            len(object_id),
+        )
+        msg += object_id.encode('utf-8')
+        msg += data.encode('utf-8')
         print("Sending packet: %s size %d" % (
             ''.join('%02x,' % b for b in msg),
             len(msg)
         ))
-        sock.sendto(msg, (args[1], int(args[2], 10)))
+        sock.sendto(msg, dest)
         data, addr = sock.recvfrom(65536)
         print("Got response, size %d" % len(data))
         ctr, = struct.unpack('>L', data)
         assert ctr == 42
-    elif args[0] == 'write_part':
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    elif command == 'write_part':
+        pool, object_id, offset, data = args
         msg = struct.pack(
-            '>LBL',
+            '>LL',
             42,
-            0x04,
-            len(args[3]),
+            len(pool),
         )
-        msg += args[3].encode('utf-8')
+        msg += pool.encode('utf-8')
+        msg += struct.pack(
+            '>BL',
+            0x04,
+            len(object_id),
+        )
+        msg += object_id.encode('utf-8')
         msg += struct.pack(
             '>L',
-            int(args[4], 10),
+            int(offset, 10),
         )
-        msg += args[5].encode('utf-8')
+        msg += data.encode('utf-8')
         print("Sending packet: %s size %d" % (
             ''.join('%02x,' % b for b in msg),
             len(msg)
         ))
-        sock.sendto(msg, (args[1], int(args[2], 10)))
+        sock.sendto(msg, dest)
         data, addr = sock.recvfrom(65536)
         print("Got response, size %d" % len(data))
         ctr, = struct.unpack('>L', data)
