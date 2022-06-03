@@ -57,7 +57,7 @@ pub async fn run_storage_daemon(
             info!("Using existing store");
             false
         } else {
-            for entry in std::fs::read_dir(storage_dir)? {
+            for _ in std::fs::read_dir(storage_dir)? {
                 return Err(Box::new(IoError::new(
                     ErrorKind::AlreadyExists,
                     "Storage path exists and is not an empty directory",

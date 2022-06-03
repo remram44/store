@@ -3,7 +3,7 @@ mod iter;
 use byteorder::{BigEndian, ReadBytesExt};
 use lazy_static::lazy_static;
 use log::info;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use std::net::SocketAddr;
 use std::sync::Mutex;
 
