@@ -18,5 +18,5 @@ log = "0.4"
 rand = "0.8"
 rustls-pemfile = "0.2"
 sha2 = "0.10"
-tokio = { version = "1.18", features = ["io-util", "macros", "net", "rt", "sync"] }
+tokio = { version = "1.18", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tokio-rustls = "0.23"

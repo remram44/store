@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::net::{TcpStream, SocketAddr};
 use std::io::{Cursor, Error as IoError, ErrorKind, Write};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::oneshot::{Sender, channel};
 
@@ -40,11 +40,33 @@ struct StorageDaemon {
     server_counter: u32,
 }
 
+const TIMEOUT: Duration = Duration::from_millis(200);
+
 #[derive(Clone)]
 pub struct Client(Arc<Mutex<ClientInner>>, Arc<UdpSocket>);
 
 impl Client {
     pub async fn upload(&self, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
+        // Do the request
+        let response = self.do_request(object_id, |req| {
+            req.write_u8(0x03).unwrap(); // write_object
+            req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
+            req.write_all(&object_id.0).unwrap();
+            req.write_all(data).unwrap();
+        }).await?;
+
+        // Read the response
+        if response.len() != 4 {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Invalid reply from storage daemon",
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn do_request<F: FnOnce(&mut Vec<u8>)>(&self, object_id: &ObjectId, write_request: F) -> Result<Vec<u8>, IoError> {
         let mut client = self.0.lock().unwrap();
         let group_id = client.pool_config.object_to_group(object_id);
         let device_id = client.pool_config.group_to_device(&group_id, 0);
@@ -58,33 +80,25 @@ impl Client {
         request.write_u32::<BigEndian>(counter).unwrap();
         request.write_u32::<BigEndian>(client.pool.0.len() as u32).unwrap();
         request.write_all(client.pool.0.as_bytes()).unwrap();
-        request.write_u8(0x03).unwrap(); // write_object
-        request.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
-        request.write_all(&object_id.0).unwrap();
-        request.write_all(data).unwrap();
+        write_request(&mut request);
 
         // Register our counter to get response
-        let (send, recv) = channel();
+        let (send, mut recv) = channel();
         client.response_channels.insert((address, counter), (Instant::now(), send));
 
         // Unlock the mutex during network operations
         drop(client);
 
-        // Send the request
-        self.1.send_to(&request, address).await?;
+        loop {
+            // Send the request
+            self.1.send_to(&request, address).await?;
 
-        // Wait for the response
-        let response = recv.await.unwrap();
-
-        // Read the response
-        if response.len() != 4 {
-            return Err(IoError::new(
-                ErrorKind::InvalidData,
-                "Invalid reply from storage daemon",
-            ));
+            // Wait for the response or timeout
+            tokio::select! {
+                response = &mut recv => return Ok(response.unwrap()),
+                _ = tokio::time::sleep(TIMEOUT) => continue,
+            }
         }
-
-        Ok(())
     }
 }
 
