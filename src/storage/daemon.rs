@@ -1,21 +1,19 @@
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use log::{error, info, warn};
 use rand::{Rng, thread_rng};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Error as IoError, ErrorKind, Read, Write};
+use std::io::{Cursor, Error as IoError, ErrorKind, Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 
-use crate::DeviceId;
+use crate::{DeviceId, ObjectId};
 use super::StorageBackend;
 use super::file_store::FileStore;
 
 pub struct StorageDaemon {
-    /// Backend performing read and write operations.
-    storage_backend: Box<dyn StorageBackend>,
-
     /// The random ID for this storage daemon.
     device_id: DeviceId,
 
@@ -60,7 +58,6 @@ pub async fn run_storage_daemon(
             false
         } else {
             for entry in std::fs::read_dir(storage_dir)? {
-                eprintln!("{}", entry?.file_name().to_string_lossy());
                 return Err(Box::new(IoError::new(
                     ErrorKind::AlreadyExists,
                     "Storage path exists and is not an empty directory",
@@ -102,10 +99,9 @@ pub async fn run_storage_daemon(
         // Open the store
         (FileStore::open(storage_dir.to_owned()), device_id)
     };
-    let storage_backend = Box::new(storage_backend);
+    let storage_backend = Arc::new(storage_backend);
 
     let storage_daemon = StorageDaemon {
-        storage_backend,
         device_id,
         peer_address,
         listen_address,
@@ -116,8 +112,9 @@ pub async fn run_storage_daemon(
 
     let clients_fut = {
         info!("Listening for client connections on {}", listen_address);
-        let listener: UdpSocket = UdpSocket::bind(listen_address).await?;
-        serve_clients(listener, storage_daemon.clone())
+        let socket = UdpSocket::bind(listen_address).await?;
+        let socket = Arc::new(socket);
+        serve_clients(socket, storage_daemon.clone(), storage_backend.clone())
     };
 
     clients_fut.await?;
@@ -125,10 +122,117 @@ pub async fn run_storage_daemon(
     Ok(())
 }
 
-async fn serve_clients(listener: UdpSocket, storage_daemon: Arc<Mutex<StorageDaemon>>) -> Result<(), IoError> {
+async fn serve_clients(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>) -> Result<(), IoError> {
     loop {
         let mut buf = [0; 65536];
-        let (len, addr) = listener.recv_from(&mut buf).await?;
-        info!("Got packet from {:?}", addr);
+        let (len, addr) = socket.recv_from(&mut buf).await?;
+        info!("Got packet from {}, size {}", addr, len);
+        let msg = buf[0..len].to_owned();
+
+        tokio::spawn(handle_client_request(
+            socket.clone(),
+            storage_daemon.clone(),
+            storage_backend.clone(),
+            addr,
+            msg,
+        ));
     }
+}
+
+async fn handle_client_request(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
+    match handle_client_request_inner(socket, storage_daemon, storage_backend, addr, msg).await {
+        Ok(()) => {}
+        Err(e) => warn!("Error handling request from {}: {}", addr, e),
+    }
+    Ok(())
+}
+
+async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
+    let mut reader = Cursor::new(&msg);
+    let msg_ctr = reader.read_u32::<BigEndian>()?;
+    let command = reader.read_u8()?;
+
+    match command {
+        0x01 => { // read_object
+            let object_id = {
+                let object_id_len = reader.read_u32::<BigEndian>()? as usize;
+                let mut object_id = vec![0; object_id_len];
+                reader.read_exact(&mut object_id)?;
+                ObjectId(object_id)
+            };
+            info!("read_object {:?}", object_id);
+
+            let object = storage_backend.read_object(object_id)?;
+            let mut response = Vec::new();
+            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            match object {
+                Some(data) => {
+                    response.write_u8(1).unwrap();
+                    response.extend_from_slice(&data);
+                }
+                None => response.write_u8(0).unwrap(),
+            }
+            socket.send_to(&response, addr).await?;
+        }
+        0x02 => { // read_part
+            let object_id = {
+                let object_id_len = reader.read_u32::<BigEndian>()? as usize;
+                let mut object_id = vec![0; object_id_len];
+                reader.read_exact(&mut object_id)?;
+                ObjectId(object_id)
+            };
+
+            let offset = reader.read_u32::<BigEndian>()?;
+            let len = reader.read_u32::<BigEndian>()?;
+
+            let object = storage_backend.read_part(object_id, offset as usize, len as usize)?;
+            let mut response = Vec::new();
+            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            match object {
+                Some(data) => {
+                    response.write_u8(1).unwrap();
+                    response.extend_from_slice(&data);
+                }
+                None => response.write_u8(0).unwrap(),
+            }
+            socket.send_to(&response, addr).await?;
+        }
+        0x03 => { // write_object
+            let object_id = {
+                let object_id_len = reader.read_u32::<BigEndian>()? as usize;
+                let mut object_id = vec![0; object_id_len];
+                reader.read_exact(&mut object_id)?;
+                ObjectId(object_id)
+            };
+
+            let data = &msg[reader.position() as usize..];
+
+            storage_backend.write_object(object_id, data)?;
+            let mut response = Vec::with_capacity(4);
+            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            socket.send_to(&response, addr).await?;
+        }
+        0x04 => { // write_part
+            let object_id = {
+                let object_id_len = reader.read_u32::<BigEndian>()? as usize;
+                let mut object_id = vec![0; object_id_len];
+                reader.read_exact(&mut object_id)?;
+                ObjectId(object_id)
+            };
+
+            let offset = reader.read_u32::<BigEndian>()? as usize;
+            let data = &msg[reader.position() as usize..];
+
+            storage_backend.write_part(object_id, offset, data)?;
+            let mut response = Vec::with_capacity(4);
+            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            socket.send_to(&response, addr).await?;
+        }
+        _ => return Err(IoError::new(
+            ErrorKind::InvalidData,
+            format!("Unknown command 0x{:02x} from client", command),
+        )),
+    }
+
+    Ok(())
 }
