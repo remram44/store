@@ -497,10 +497,14 @@ dependencies = [
 name = "store-nbd-gateway"
 version = "0.1.0"
 dependencies = [
+ "byteorder",
+ "env_logger",
  "lazy_static",
  "libc",
+ "log",
  "nbdkit",
  "store",
+ "tokio",
 ]
 
 [[package]]
