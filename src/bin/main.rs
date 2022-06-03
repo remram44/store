@@ -5,6 +5,7 @@ extern crate log;
 use clap::{Arg, Command};
 use std::borrow::Cow;
 use std::env;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -128,7 +129,42 @@ fn main() {
                     .allow_invalid_utf8(true)
             )
         )
-        .subcommand(Command::new("upload")
+        .subcommand(Command::new("read")
+            .about("Download data as a client")
+            .arg(
+                Arg::new("storage-daemon")
+                    .long("storage-daemon")
+                    .help("Address of the storage daemon")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("pool")
+                    .long("pool")
+                    .help("Name of the pool")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("object-id")
+                    .help("Object ID to get")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("offset")
+                    .long("offset")
+                    .help("Do a partial read starting at this byte offset")
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("length")
+                    .long("length")
+                    .help("Do a partial read with this size")
+                    .takes_value(true)
+            )
+        )
+        .subcommand(Command::new("write")
             .about("Upload data as a client")
             .arg(
                 Arg::new("storage-daemon")
@@ -162,6 +198,12 @@ fn main() {
                     .help("Read data to set form file; use either this or --data-literal")
                     .takes_value(true)
                     .allow_invalid_utf8(true)
+            )
+            .arg(
+                Arg::new("offset")
+                    .long("offset")
+                    .help("Overwrite existing object starting at this byte offset")
+                    .takes_value(true)
             )
         );
 
@@ -282,10 +324,10 @@ fn main() {
                 )
             ).unwrap();
         }
-        Some("upload") => {
+        Some("read") => {
             use store::client::create_client;
 
-            let s_matches = matches.subcommand_matches("upload").unwrap();
+            let s_matches = matches.subcommand_matches("read").unwrap();
             let storage_daemon_address = s_matches.value_of("storage-daemon").unwrap();
             let storage_daemon_address: SocketAddr = check!(
                 storage_daemon_address.parse(),
@@ -294,12 +336,73 @@ fn main() {
             let pool = s_matches.value_of("pool").unwrap();
             let object_id = s_matches.value_of("object-id").unwrap();
             let object_id = ObjectId(object_id.as_bytes().to_owned());
+            let offset: Option<u32> = match s_matches.value_of("offset") {
+                None => None,
+                Some(s) => match s.parse() {
+                    Ok(i) => Some(i),
+                    Err(_) => {
+                        eprintln!("Invalid offset");
+                        std::process::exit(2);
+                    }
+                }
+            };
+            let length: Option<u32> = match s_matches.value_of("length") {
+                None => None,
+                Some(s) => match s.parse() {
+                    Ok(i) => Some(i),
+                    Err(_) => {
+                        eprintln!("Invalid length");
+                        std::process::exit(2);
+                    }
+                }
+            };
+
+            runtime.build().unwrap().block_on(
+                async move {
+                    let client = create_client(
+                        storage_daemon_address,
+                        PoolName(pool.to_owned()),
+                    ).await?;
+                    let data = match (offset, length) {
+                        (None, None) => client.read_object(&object_id).await?,
+                        (offset, length) => client.read_part(&object_id, offset.unwrap_or(0), length.unwrap_or(u32::MAX)).await?,
+                    };
+                    match data {
+                        None => eprintln!("No such key"),
+                        Some(bytes) => std::io::stdout().write_all(&bytes).unwrap(),
+                    }
+                    Ok(()) as Result <(), Box<dyn std::error::Error>>
+                }
+            ).unwrap();
+        }
+        Some("write") => {
+            use store::client::create_client;
+
+            let s_matches = matches.subcommand_matches("write").unwrap();
+            let storage_daemon_address = s_matches.value_of("storage-daemon").unwrap();
+            let storage_daemon_address: SocketAddr = check!(
+                storage_daemon_address.parse(),
+                "Invalid storage-daemon address",
+            );
+            let pool = s_matches.value_of("pool").unwrap();
+            let object_id = s_matches.value_of("object-id").unwrap();
+            let object_id = ObjectId(object_id.as_bytes().to_owned());
+            let offset: Option<u32> = match s_matches.value_of("offset") {
+                None => None,
+                Some(s) => match s.parse() {
+                    Ok(i) => Some(i),
+                    Err(_) => {
+                        eprintln!("Invalid offset");
+                        std::process::exit(2);
+                    }
+                }
+            };
             let data: Cow<[u8]> = {
                 let data_literal = s_matches.value_of("data-literal");
                 let data_file = s_matches.value_of_os("data-file");
                 if data_literal.is_some() && data_file.is_some() {
                     eprintln!("Please provide EITHER --data-literal or --data-file");
-                    cli.find_subcommand_mut("upload").unwrap().print_help().expect("Can't print help");
+                    cli.find_subcommand_mut("write").unwrap().print_help().expect("Can't print help");
                     std::process::exit(2);
                 } else if let Some(d) = data_literal {
                     Cow::Borrowed(d.as_bytes())
@@ -321,7 +424,7 @@ fn main() {
                     }
                 } else {
                     eprintln!("Data missing, please provide --data-literal or --data-file");
-                    cli.find_subcommand_mut("upload").unwrap().print_help().expect("Can't print help");
+                    cli.find_subcommand_mut("write").unwrap().print_help().expect("Can't print help");
                     std::process::exit(2);
                 }
             };
@@ -332,7 +435,10 @@ fn main() {
                         storage_daemon_address,
                         PoolName(pool.to_owned()),
                     ).await?;
-                    client.upload(&object_id, &data).await?;
+                    match offset {
+                        None => client.write_object(&object_id, &data).await?,
+                        Some(offset) => client.write_part(&object_id, offset, &data).await?,
+                    }
                     Ok(()) as Result <(), Box<dyn std::error::Error>>
                 }
             ).unwrap();

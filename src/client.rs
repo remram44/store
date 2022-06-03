@@ -46,12 +46,79 @@ const TIMEOUT: Duration = Duration::from_millis(200);
 pub struct Client(Arc<Mutex<ClientInner>>, Arc<UdpSocket>);
 
 impl Client {
-    pub async fn upload(&self, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
+    pub async fn read_object(&self, object_id: &ObjectId) -> Result<Option<Vec<u8>>, IoError> {
+        // Do the request
+        let response = self.do_request(object_id, |req| {
+            req.write_u8(0x01).unwrap(); // read_object
+            req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
+            req.write_all(&object_id.0).unwrap();
+        }).await?;
+
+        // Read the response
+        if response.len() < 5 {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Invalid reply from storage daemon",
+            ));
+        }
+        match response[4] {
+            1 => Ok(Some(response[5..].to_owned())),
+            0 => Ok(None),
+            _ => Err(IoError::new(ErrorKind::InvalidData, "Invalid reply from storage daemon")),
+        }
+    }
+
+    pub async fn read_part(&self, object_id: &ObjectId, offset: u32, len: u32) -> Result<Option<Vec<u8>>, IoError> {
+        // Do the request
+        let response = self.do_request(object_id, |req| {
+            req.write_u8(0x02).unwrap(); // read_part
+            req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
+            req.write_all(&object_id.0).unwrap();
+            req.write_u32::<BigEndian>(offset).unwrap();
+            req.write_u32::<BigEndian>(len).unwrap();
+        }).await?;
+
+        // Read the response
+        if response.len() < 5 {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Invalid reply from storage daemon",
+            ));
+        }
+        match response[4] {
+            1 => Ok(Some(response[5..].to_owned())),
+            0 => Ok(None),
+            _ => Err(IoError::new(ErrorKind::InvalidData, "Invalid reply from storage daemon")),
+        }
+    }
+
+    pub async fn write_object(&self, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
         // Do the request
         let response = self.do_request(object_id, |req| {
             req.write_u8(0x03).unwrap(); // write_object
             req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
             req.write_all(&object_id.0).unwrap();
+            req.write_all(data).unwrap();
+        }).await?;
+
+        // Read the response
+        if response.len() != 4 {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Invalid reply from storage daemon",
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub async fn write_part(&self, object_id: &ObjectId, offset: u32, data: &[u8]) -> Result<(), IoError> {
+        // Do the request
+        let response = self.do_request(object_id, |req| {
+            req.write_u8(0x04).unwrap(); // write_part
+            req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
+            req.write_all(&object_id.0).unwrap();
+            req.write_u32::<BigEndian>(offset).unwrap();
             req.write_all(data).unwrap();
         }).await?;
 
@@ -89,6 +156,7 @@ impl Client {
         // Unlock the mutex during network operations
         drop(client);
 
+        info!("Sending request {}, size {}", counter, request.len());
         loop {
             // Send the request
             self.1.send_to(&request, address).await?;
@@ -98,6 +166,7 @@ impl Client {
                 response = &mut recv => return Ok(response.unwrap()),
                 _ = tokio::time::sleep(TIMEOUT) => continue,
             }
+            info!("Timeout, resending request {}", counter);
         }
     }
 }
