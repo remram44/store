@@ -50,8 +50,19 @@ impl StorageBackend for FileStore {
             Err(e) => Err(e),
         }?;
         file.seek(SeekFrom::Start(offset as u64))?;
-        let mut result = vec![0; len];
-        file.read_exact(&mut result)?;
+        const BUF_SIZE: usize = 4096;
+        let mut result = vec![0; BUF_SIZE.min(len)];
+        let mut read_bytes = 0;
+        while read_bytes < len {
+            let s = result.len().min(len);
+            let n = file.read(&mut result[read_bytes..s])?;
+            if n == 0 {
+                break;
+            }
+            read_bytes += n;
+            result.resize(len.min(read_bytes + BUF_SIZE), 0);
+        }
+        result.shrink_to(read_bytes);
         Ok(Some(result))
     }
 
