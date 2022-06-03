@@ -263,10 +263,10 @@ fn main() {
         };
         let mut logger_builder = env_logger::builder();
         logger_builder.filter(None, level);
-        if let Ok(val) = env::var("DOUBLEGIT_LOG") {
+        if let Ok(val) = env::var("STORE_LOG") {
             logger_builder.parse_filters(&val);
         }
-        if let Ok(val) = env::var("DOUBLEGIT_LOG_STYLE") {
+        if let Ok(val) = env::var("STORE_LOG_STYLE") {
             logger_builder.parse_write_style(&val);
         }
         logger_builder.init();
