@@ -97,7 +97,6 @@ impl Server for NbdGateway {
     fn config_complete() -> Result<()> {
         {
             let mut logger_builder = env_logger::builder();
-            logger_builder.filter(None, log::LevelFilter::Info);
             if let Ok(val) = std::env::var("STORE_LOG") {
                 logger_builder.parse_filters(&val);
             }
