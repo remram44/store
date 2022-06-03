@@ -240,6 +240,20 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             socket.send_to(&response, addr).await?;
         }
+        0x05 => { // delete_object
+            let object_id = {
+                let object_id_len = reader.read_u32::<BigEndian>()? as usize;
+                let mut object_id = vec![0; object_id_len];
+                reader.read_exact(&mut object_id)?;
+                ObjectId(object_id)
+            };
+
+            info!("delete_object {:?}", object_id);
+            storage_backend.delete_object(&pool_name, object_id)?;
+            let mut response = Vec::with_capacity(4);
+            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            socket.send_to(&response, addr).await?;
+        }
         _ => return Err(IoError::new(
             ErrorKind::InvalidData,
             format!("Unknown command 0x{:02x} from client", command),

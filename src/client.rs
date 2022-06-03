@@ -133,6 +133,25 @@ impl Client {
         Ok(())
     }
 
+    pub async fn delete_object(&self, object_id: &ObjectId) -> Result<(), IoError> {
+        // Do the request
+        let response = self.do_request(object_id, |req| {
+            req.write_u8(0x05).unwrap(); // delete_object
+            req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
+            req.write_all(&object_id.0).unwrap();
+        }).await?;
+
+        // Read the response
+        if response.len() != 4 {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Invalid reply from storage daemon",
+            ));
+        }
+
+        Ok(())
+    }
+
     async fn do_request<F: FnOnce(&mut Vec<u8>)>(&self, object_id: &ObjectId, write_request: F) -> Result<Vec<u8>, IoError> {
         let mut client = self.0.lock().unwrap();
         let group_id = client.pool_config.object_to_group(object_id);

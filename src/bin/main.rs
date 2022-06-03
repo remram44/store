@@ -195,7 +195,7 @@ fn main() {
             .arg(
                 Arg::new("data-file")
                     .long("data-file")
-                    .help("Read data to set form file; use either this or --data-literal")
+                    .help("Read data to set from file; use either this or --data-literal")
                     .takes_value(true)
                     .allow_invalid_utf8(true)
             )
@@ -203,6 +203,29 @@ fn main() {
                 Arg::new("offset")
                     .long("offset")
                     .help("Overwrite existing object starting at this byte offset")
+                    .takes_value(true)
+            )
+        )
+        .subcommand(Command::new("delete")
+            .about("Delete an object")
+            .arg(
+                Arg::new("storage-daemon")
+                    .long("storage-daemon")
+                    .help("Address of the storage daemon")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("pool")
+                    .long("pool")
+                    .help("Name of the pool")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("object-id")
+                    .help("Object ID to set")
+                    .required(true)
                     .takes_value(true)
             )
         );
@@ -439,6 +462,30 @@ fn main() {
                         None => client.write_object(&object_id, &data).await?,
                         Some(offset) => client.write_part(&object_id, offset, &data).await?,
                     }
+                    Ok(()) as Result <(), Box<dyn std::error::Error>>
+                }
+            ).unwrap();
+        }
+        Some("delete") => {
+            use store::client::create_client;
+
+            let s_matches = matches.subcommand_matches("delete").unwrap();
+            let storage_daemon_address = s_matches.value_of("storage-daemon").unwrap();
+            let storage_daemon_address: SocketAddr = check!(
+                storage_daemon_address.parse(),
+                "Invalid storage-daemon address",
+            );
+            let pool = s_matches.value_of("pool").unwrap();
+            let object_id = s_matches.value_of("object-id").unwrap();
+            let object_id = ObjectId(object_id.as_bytes().to_owned());
+
+            runtime.build().unwrap().block_on(
+                async move {
+                    let client = create_client(
+                        storage_daemon_address,
+                        PoolName(pool.to_owned()),
+                    ).await?;
+                    client.delete_object(&object_id).await?;
                     Ok(()) as Result <(), Box<dyn std::error::Error>>
                 }
             ).unwrap();
