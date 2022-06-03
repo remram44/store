@@ -9,7 +9,7 @@ pub mod storage_map;
 use std::fmt::Debug;
 
 /// The ID of a device, which also identifies the storage daemon for it.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct DeviceId(pub [u8; 16]);
 
 /// The name of a storage pool.

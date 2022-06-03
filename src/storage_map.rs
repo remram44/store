@@ -6,8 +6,8 @@ use crate::hash::{compute_hash, compute_object_hash};
 /// This contains the tree used to map a group to a device, as well as the
 /// current number of groups.
 pub struct StorageConfiguration {
-    groups: usize,
-    map_root: Node,
+    pub(crate) groups: usize,
+    pub(crate) map_root: Node,
 }
 
 impl StorageConfiguration {

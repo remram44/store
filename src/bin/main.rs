@@ -3,9 +3,12 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{Arg, Command};
+use std::borrow::Cow;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
+
+use store::{ObjectId, PoolName};
 
 fn main() {
     // Parse command line
@@ -121,6 +124,42 @@ fn main() {
                     .long("dir")
                     .help("Directory where to store object data")
                     .required(true)
+                    .takes_value(true)
+                    .allow_invalid_utf8(true)
+            )
+        )
+        .subcommand(Command::new("upload")
+            .about("Upload data as a client")
+            .arg(
+                Arg::new("storage-daemon")
+                    .long("storage-daemon")
+                    .help("Address of the storage daemon")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("pool")
+                    .long("pool")
+                    .help("Name of the pool")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("object-id")
+                    .help("Object ID to set")
+                    .required(true)
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("data-literal")
+                    .long("data-literal")
+                    .help("Data to set; use either this or --data-file")
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("data-file")
+                    .long("data-file")
+                    .help("Read data to set form file; use either this or --data-literal")
                     .takes_value(true)
                     .allow_invalid_utf8(true)
             )
@@ -241,6 +280,61 @@ fn main() {
                     listen_address,
                     storage_dir,
                 )
+            ).unwrap();
+        }
+        Some("upload") => {
+            use store::client::create_client;
+
+            let s_matches = matches.subcommand_matches("upload").unwrap();
+            let storage_daemon_address = s_matches.value_of("storage-daemon").unwrap();
+            let storage_daemon_address: SocketAddr = check!(
+                storage_daemon_address.parse(),
+                "Invalid storage-daemon address",
+            );
+            let pool = s_matches.value_of("pool").unwrap();
+            let object_id = s_matches.value_of("object-id").unwrap();
+            let object_id = ObjectId(object_id.as_bytes().to_owned());
+            let data: Cow<[u8]> = {
+                let data_literal = s_matches.value_of("data-literal");
+                let data_file = s_matches.value_of_os("data-file");
+                if data_literal.is_some() && data_file.is_some() {
+                    eprintln!("Please provide EITHER --data-literal or --data-file");
+                    cli.find_subcommand_mut("upload").unwrap().print_help().expect("Can't print help");
+                    std::process::exit(2);
+                } else if let Some(d) = data_literal {
+                    Cow::Borrowed(d.as_bytes())
+                } else if let Some(path) = data_file {
+                    fn read_file(path: &Path) -> Result<Vec<u8>, std::io::Error> {
+                        use std::io::Read;
+                        let mut file = std::fs::File::open(path)?;
+                        let mut data = Vec::new();
+                        file.read_to_end(&mut data)?;
+                        Ok(data)
+                    }
+
+                    match read_file(Path::new(path)) {
+                        Ok(d) => Cow::Owned(d),
+                        Err(e) => {
+                            eprintln!("Error reading data file: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    eprintln!("Data missing, please provide --data-literal or --data-file");
+                    cli.find_subcommand_mut("upload").unwrap().print_help().expect("Can't print help");
+                    std::process::exit(2);
+                }
+            };
+
+            runtime.build().unwrap().block_on(
+                async move {
+                    let client = create_client(
+                        storage_daemon_address,
+                        PoolName(pool.to_owned()),
+                    ).await?;
+                    client.upload(&object_id, &data).await?;
+                    Ok(()) as Result <(), Box<dyn std::error::Error>>
+                }
             ).unwrap();
         }
         _ => {
