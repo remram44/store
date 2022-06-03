@@ -91,7 +91,8 @@ Example usage:
 ```
 nbdkit target/release/libstore_nbd_gateway.so -f storage_daemon_address=127.0.0.1:4148 pool=testpool image=testblock
 mkdir /tmp/storage/testpool
-printf '\x06\x40\x00\x00' > /tmp/storage/testpool/74657374626c6f636b # Write metadata in 'testblock': size=100MB
+printf '\x00\x00\x00\x00\x06\x40\x00\x00' > /tmp/storage/testpool/74657374626c6f636b # Write metadata in 'testblock': size=100MB
+modprobe nbd
 nbd-client localhost 10809 /dev/nbd0
 mkfs.ext3 /dev/nbd0
 mount /dev/nbd0 /mnt

@@ -17,7 +17,7 @@ const BLOCK_SIZE: usize = 512;
 struct BlockDeviceClient {
     runtime: tokio::runtime::Runtime,
     client: Client,
-    size: u32,
+    size: u64,
     base_name: Vec<u8>,
 }
 
@@ -44,7 +44,7 @@ lazy_static! {
     static ref CONFIG: Mutex<NbdGatewayConfig> = Mutex::new(NbdGatewayConfig::default());
 }
 
-async fn read_image_metadata(client: &Client, base_name: &[u8]) -> Result<u32> {
+async fn read_image_metadata(client: &Client, base_name: &[u8]) -> Result<u64> {
     // Get metadata object
     let metadata = client.read_object(&ObjectId(base_name.to_owned())).await?;
     let metadata = metadata.ok_or(Error::new(
@@ -54,7 +54,7 @@ async fn read_image_metadata(client: &Client, base_name: &[u8]) -> Result<u32> {
 
     // Read it
     let mut metadata = Cursor::new(&metadata);
-    let size = metadata.read_u32::<BigEndian>()?;
+    let size = metadata.read_u64::<BigEndian>()?;
 
     info!("Found block device, size={}", size);
     Ok(size)
