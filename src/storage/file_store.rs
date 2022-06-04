@@ -104,14 +104,14 @@ impl StorageBackend for FileStore {
 
 #[cfg(test)]
 mod tests {
-    use crate::ObjectId;
+    use crate::{ObjectId, PoolName};
     use super::encode_object_id;
 
     #[test]
     fn test_encode() {
         assert_eq!(
-            encode_object_id(ObjectId((b"hello\0world!" as &[u8]).to_owned())),
-            "68656c6c6f00776f726c6421",
+            encode_object_id(&PoolName("testpool".to_owned()), ObjectId((b"hello\0world!" as &[u8]).to_owned())),
+            "testpool/68656c6c6f00776f726c6421",
         );
     }
 }
