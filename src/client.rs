@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use lazy_static::lazy_static;
 use log::info;
 use std::collections::HashMap;
 use std::net::{TcpStream, SocketAddr};
@@ -11,6 +12,42 @@ use tokio::sync::oneshot::{Sender, channel};
 use crate::{DeviceId, ObjectId, PoolName};
 use crate::crypto::KeyPair;
 use crate::storage_map;
+
+#[derive(Clone)]
+struct Metrics {
+    reads: prometheus::IntCounter,
+    writes: prometheus::IntCounter,
+    resends: prometheus::IntCounter,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = {
+        let m = Metrics {
+            reads: prometheus::register_int_counter!("reads", "Total reads").unwrap(),
+            writes: prometheus::register_int_counter!("writes", "Total writes").unwrap(),
+            resends: prometheus::register_int_counter!("resends", "Total resent packets").unwrap(),
+        };
+        let metrics = m.clone();
+        std::thread::spawn(move || {
+            let mut last_reads = 0;
+            let mut last_writes = 0;
+            let mut last_resends = 0;
+            loop {
+                let reads = metrics.reads.get();
+                let writes = metrics.writes.get();
+                let resends = metrics.resends.get();
+                if reads != last_reads || writes != last_writes || resends != last_resends {
+                    info!("last 10s: {} reads, {} writes, {} resent packets", reads - last_reads, writes - last_writes, resends - last_resends);
+                    last_reads = reads;
+                    last_writes = writes;
+                    last_resends = resends;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10000));
+            }
+        });
+        m
+    };
+}
 
 pub struct ClientInner {
     /// Addresses of master server(s).
@@ -48,6 +85,7 @@ pub struct Client(Arc<Mutex<ClientInner>>, Arc<UdpSocket>);
 impl Client {
     pub async fn read_object(&self, object_id: &ObjectId) -> Result<Option<Vec<u8>>, IoError> {
         // Do the request
+        METRICS.reads.inc();
         let response = self.do_request(object_id, |req| {
             req.write_u8(0x01).unwrap(); // read_object
             req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
@@ -70,6 +108,7 @@ impl Client {
 
     pub async fn read_part(&self, object_id: &ObjectId, offset: u32, len: u32) -> Result<Option<Vec<u8>>, IoError> {
         // Do the request
+        METRICS.reads.inc();
         let response = self.do_request(object_id, |req| {
             req.write_u8(0x02).unwrap(); // read_part
             req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
@@ -94,6 +133,7 @@ impl Client {
 
     pub async fn write_object(&self, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
         // Do the request
+        METRICS.writes.inc();
         let response = self.do_request(object_id, |req| {
             req.write_u8(0x03).unwrap(); // write_object
             req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
@@ -114,6 +154,7 @@ impl Client {
 
     pub async fn write_part(&self, object_id: &ObjectId, offset: u32, data: &[u8]) -> Result<(), IoError> {
         // Do the request
+        METRICS.writes.inc();
         let response = self.do_request(object_id, |req| {
             req.write_u8(0x04).unwrap(); // write_part
             req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
@@ -135,6 +176,7 @@ impl Client {
 
     pub async fn delete_object(&self, object_id: &ObjectId) -> Result<(), IoError> {
         // Do the request
+        METRICS.writes.inc();
         let response = self.do_request(object_id, |req| {
             req.write_u8(0x05).unwrap(); // delete_object
             req.write_u32::<BigEndian>(object_id.0.len() as u32).unwrap();
@@ -186,6 +228,7 @@ impl Client {
                 _ = tokio::time::sleep(TIMEOUT) => {}
             }
             info!("Timeout, resending request {}", counter);
+            METRICS.resends.inc();
         }
     }
 }
