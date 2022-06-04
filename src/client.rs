@@ -80,7 +80,19 @@ struct StorageDaemon {
 const TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Clone)]
-pub struct Client(Arc<Mutex<ClientInner>>, Arc<UdpSocket>);
+pub struct Client {
+    client: Arc<Mutex<ClientInner>>,
+    udp_socket: Arc<UdpSocket>,
+    _receive_task_handle: Arc<CancelTask>,
+}
+
+struct CancelTask(tokio::task::JoinHandle<Result<(), IoError>>);
+
+impl Drop for CancelTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 impl Client {
     pub async fn read_object(&self, object_id: &ObjectId) -> Result<Option<Vec<u8>>, IoError> {
@@ -195,7 +207,7 @@ impl Client {
     }
 
     async fn do_request<F: FnOnce(&mut Vec<u8>)>(&self, object_id: &ObjectId, write_request: F) -> Result<Vec<u8>, IoError> {
-        let mut client = self.0.lock().unwrap();
+        let mut client = self.client.lock().unwrap();
         let group_id = client.pool_config.object_to_group(object_id);
         let device_id = client.pool_config.group_to_device(&group_id, 0);
         let daemon = client.storage_daemons.get_mut(&device_id).unwrap();
@@ -220,7 +232,7 @@ impl Client {
         info!("Sending request {}, size {}", counter, request.len());
         loop {
             // Send the request
-            self.1.send_to(&request, address).await?;
+            self.udp_socket.send_to(&request, address).await?;
 
             // Wait for the response or timeout
             tokio::select! {
@@ -263,22 +275,32 @@ pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -
         storage_daemon_key,
         response_channels: HashMap::new(),
     };
+    let client_inner = Arc::new(Mutex::new(client_inner));
 
-    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-
-    let client = Client(Arc::new(Mutex::new(client_inner)), Arc::new(socket));
+    let udp_socket = UdpSocket::bind("0.0.0.0:0").await?;
+    let udp_socket = Arc::new(udp_socket);
 
     // Start the receiving task
-    tokio::spawn(receive_task(client.clone()));
+    let receive_task_handle = tokio::spawn(receive_task(client_inner.clone(), udp_socket.clone()));
+
+    // Wrap the receiving task handle in a structure that will drop it when no
+    // client remains
+    let receive_task_handle = Arc::new(CancelTask(receive_task_handle));
+
+    let client = Client {
+        client: client_inner,
+        udp_socket,
+        _receive_task_handle: receive_task_handle,
+    };
 
     Ok(client)
 }
 
-async fn receive_task(client: Client) -> Result<(), IoError> {
-    let socket: &UdpSocket = &client.1;
+async fn receive_task(client: Arc<Mutex<ClientInner>>, udp_socket: Arc<UdpSocket>) -> Result<(), IoError> {
+    let udp_socket: &UdpSocket = &udp_socket;
     let mut buf = [0; 65536];
     loop {
-        let (len, addr) = socket.recv_from(&mut buf).await?;
+        let (len, addr) = udp_socket.recv_from(&mut buf).await?;
         info!("Got packet from {}, size {}", addr, len);
         let msg = &buf[0..len];
         if msg.len() < 4 {
@@ -287,7 +309,7 @@ async fn receive_task(client: Client) -> Result<(), IoError> {
         let counter = Cursor::new(msg).read_u32::<BigEndian>().unwrap();
 
         // Get the channel
-        let mut client = client.0.lock().unwrap();
+        let mut client = client.lock().unwrap();
         if let Some((_, channel)) = client.response_channels.remove(&(addr, counter)) {
             info!("Handling reply, counter={}", counter);
             channel.send(msg.to_owned()).unwrap();
