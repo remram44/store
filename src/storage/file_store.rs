@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions, remove_file};
 use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
@@ -18,8 +19,19 @@ impl FileStore {
 }
 
 fn encode_object_id(pool: &PoolName, object_id: ObjectId) -> String {
+    // <pool>/
     let mut result = Vec::new();
     result.extend_from_slice(pool.0.as_bytes());
+    result.push(b'/');
+
+    let mut h = Sha256::new();
+    h.update(&object_id.0);
+    let h = h.finalize();
+
+    // hash[0..2]/object_id
+    for b in &h[0..2] {
+        write!(result, "{:02x}", b).unwrap();
+    }
     result.push(b'/');
     for b in &object_id.0 {
         write!(result, "{:02x}", b).unwrap();
@@ -67,23 +79,17 @@ impl StorageBackend for FileStore {
     }
 
     fn write_object(&self, pool: &PoolName, object_id: ObjectId, data: &[u8]) -> Result<(), IoError> {
-        let pool_path = self.path.join(&pool.0);
-        if !pool_path.exists() {
-            std::fs::create_dir(pool_path)?;
-        }
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
+        std::fs::create_dir_all(path.parent().unwrap())?;
         let mut file = OpenOptions::new().create(true).write(true).truncate(true).open(path)?;
         file.write_all(data)
     }
 
     fn write_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
-        let pool_path = self.path.join(&pool.0);
-        if !pool_path.exists() {
-            std::fs::create_dir(pool_path)?;
-        }
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
+        std::fs::create_dir_all(path.parent().unwrap())?;
         let mut file = OpenOptions::new().create(true).write(true).truncate(false).open(path)?;
         let size = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(offset as u64))?;
@@ -111,7 +117,7 @@ mod tests {
     fn test_encode() {
         assert_eq!(
             encode_object_id(&PoolName("testpool".to_owned()), ObjectId((b"hello\0world!" as &[u8]).to_owned())),
-            "testpool/68656c6c6f00776f726c6421",
+            "testpool/6d74/68656c6c6f00776f726c6421",
         );
     }
 }
