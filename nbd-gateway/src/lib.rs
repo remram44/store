@@ -11,6 +11,7 @@ use iter::list_blocks;
 use nbdkit::*;
 use store::{ObjectId, PoolName};
 use store::client::{Client, create_client};
+use store::metrics::start_http_server;
 
 const BLOCK_SIZE: usize = 512;
 
@@ -38,6 +39,7 @@ struct NbdGatewayConfig {
     storage_daemon_address: Option<SocketAddr>,
     pool: Option<PoolName>,
     image: Option<Vec<u8>>,
+    metrics: Option<SocketAddr>,
 }
 
 lazy_static! {
@@ -65,6 +67,7 @@ Configuration options (pass KEY=VALUE on command line):
     storage_daemon_address: address and UDP port of the storage daemon
     pool: name of the pool
     image: base name of the block device objects in the pool
+    metrics: address on which to serve metrics in Prometheus format
 ";
 
 impl Server for NbdGateway {
@@ -88,6 +91,9 @@ impl Server for NbdGateway {
             CONFIG.lock().unwrap().pool = Some(PoolName(value.to_owned()));
         } else if key == "image" {
             CONFIG.lock().unwrap().image = Some(value.as_bytes().to_owned());
+        } else if key == "metrics" {
+            let value = value.parse().map_err(|_| Error::new(libc::EINVAL, "Invalid address for the metrics"))?;
+            CONFIG.lock().unwrap().metrics = Some(value);
         } else {
             return Err(Error::new(libc::EINVAL, format!("Invalid configuration option {}", key)));
         }
@@ -116,6 +122,10 @@ impl Server for NbdGateway {
         } else {
             Ok(())
         }?;
+
+        if let Some(addr) = config.metrics {
+            start_http_server(addr);
+        }
 
         let mut device = DEVICE.lock().unwrap();
         if device.is_none() {
