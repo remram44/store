@@ -183,7 +183,7 @@ impl Client {
             // Wait for the response or timeout
             tokio::select! {
                 response = &mut recv => return Ok(response.unwrap()),
-                _ = tokio::time::sleep(TIMEOUT) => continue,
+                _ = tokio::time::sleep(TIMEOUT) => {}
             }
             info!("Timeout, resending request {}", counter);
         }
