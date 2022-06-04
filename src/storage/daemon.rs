@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use lazy_static::lazy_static;
 use log::{error, info, warn};
 use rand::{Rng, thread_rng};
 use std::collections::HashMap;
@@ -12,6 +13,42 @@ use tokio::net::UdpSocket;
 use crate::{DeviceId, ObjectId, PoolName};
 use super::StorageBackend;
 use super::file_store::FileStore;
+
+#[derive(Clone)]
+struct Metrics {
+    reads: prometheus::IntCounter,
+    writes: prometheus::IntCounter,
+    invalid_requests: prometheus::IntCounter,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = {
+        let m = Metrics {
+            reads: prometheus::register_int_counter!("reads", "Total reads").unwrap(),
+            writes: prometheus::register_int_counter!("writes", "Total writes").unwrap(),
+            invalid_requests: prometheus::register_int_counter!("invalid_requests", "Total invalid requests").unwrap(),
+        };
+        let metrics = m.clone();
+        std::thread::spawn(move || {
+            let mut last_reads = 0;
+            let mut last_writes = 0;
+            let mut last_invalid_requests = 0;
+            loop {
+                let reads = metrics.reads.get();
+                let writes = metrics.writes.get();
+                let invalid_requests = metrics.invalid_requests.get();
+                if reads != last_reads || writes != last_writes || invalid_requests != last_invalid_requests {
+                    info!("last 10s: {} reads, {} writes, {} invalid requests", reads - last_reads, writes - last_writes, invalid_requests - last_invalid_requests);
+                    last_reads = reads;
+                    last_writes = writes;
+                    last_invalid_requests = invalid_requests;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10000));
+            }
+        });
+        m
+    };
+}
 
 pub struct StorageDaemon {
     /// The random ID for this storage daemon.
@@ -142,7 +179,10 @@ async fn serve_clients(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<Storage
 async fn handle_client_request(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
     match handle_client_request_inner(socket, storage_daemon, storage_backend, addr, msg).await {
         Ok(()) => {}
-        Err(e) => warn!("Error handling request from {}: {}", addr, e),
+        Err(e) => {
+            warn!("Error handling request from {}: {}", addr, e);
+            METRICS.invalid_requests.inc();
+        }
     }
     Ok(())
 }
@@ -172,6 +212,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             info!("read_object {:?}", object_id);
             let object = storage_backend.read_object(&pool_name, object_id)?;
+            METRICS.reads.inc();
             let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             match object {
@@ -196,6 +237,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             info!("read_part {:?} {} {}", object_id, offset, len);
             let object = storage_backend.read_part(&pool_name, object_id, offset as usize, len as usize)?;
+            METRICS.reads.inc();
             let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             match object {
@@ -219,6 +261,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             info!("write_object {:?} {}", object_id, data.len());
             storage_backend.write_object(&pool_name, object_id, data)?;
+            METRICS.writes.inc();
             let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             socket.send_to(&response, addr).await?;
@@ -236,6 +279,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             info!("write_part {:?} {} {}", object_id, offset, data.len());
             storage_backend.write_part(&pool_name, object_id, offset, data)?;
+            METRICS.writes.inc();
             let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             socket.send_to(&response, addr).await?;
@@ -250,6 +294,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             info!("delete_object {:?}", object_id);
             storage_backend.delete_object(&pool_name, object_id)?;
+            METRICS.writes.inc();
             let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             socket.send_to(&response, addr).await?;

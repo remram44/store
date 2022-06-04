@@ -2,6 +2,7 @@ pub mod client;
 pub mod crypto;
 mod hash;
 pub mod master;
+pub mod metrics;
 pub mod proto;
 pub mod storage;
 pub mod storage_map;

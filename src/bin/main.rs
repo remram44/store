@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use store::{ObjectId, PoolName};
+use store::metrics::start_http_server;
 
 fn main() {
     // Parse command line
@@ -18,10 +19,17 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
-        .arg(Arg::new("verbose")
-            .short('v')
-            .help("Augment verbosity (print more details)")
-            .multiple_occurrences(true)
+        .arg(
+            Arg::new("verbose")
+                .short('v')
+                .help("Augment verbosity (print more details)")
+                .multiple_occurrences(true)
+        )
+        .arg(
+            Arg::new("serve-metrics")
+                .long("serve-metrics")
+                .help("Serve metrics in Prometheus format on this port")
+                .takes_value(true)
         )
         .subcommand(Command::new("master")
             .about("Start master server, used for coordination and authentication")
@@ -270,6 +278,15 @@ fn main() {
             logger_builder.parse_write_style(&val);
         }
         logger_builder.init();
+    }
+
+    // Set up metrics
+    if let Some(metrics_addr) = matches.value_of("serve-metrics") {
+        let metrics_addr: SocketAddr = check!(
+            metrics_addr.parse(),
+            "Invalid metrics address",
+        );
+        start_http_server(metrics_addr);
     }
 
     let mut runtime = tokio::runtime::Builder::new_current_thread();
