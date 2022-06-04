@@ -18,6 +18,7 @@ struct Metrics {
     reads: prometheus::IntCounter,
     writes: prometheus::IntCounter,
     resends: prometheus::IntCounter,
+    in_flight: prometheus::IntGauge,
 }
 
 lazy_static! {
@@ -26,6 +27,7 @@ lazy_static! {
             reads: prometheus::register_int_counter!("reads", "Total reads").unwrap(),
             writes: prometheus::register_int_counter!("writes", "Total writes").unwrap(),
             resends: prometheus::register_int_counter!("resends", "Total resent packets").unwrap(),
+            in_flight: prometheus::register_int_gauge!("in_flight", "Requests currently in flight").unwrap(),
         };
         let metrics = m.clone();
         std::thread::spawn(move || {
@@ -230,13 +232,17 @@ impl Client {
         drop(client);
 
         info!("Sending request {}, size {}", counter, request.len());
+        METRICS.in_flight.inc();
         loop {
             // Send the request
             self.udp_socket.send_to(&request, address).await?;
 
             // Wait for the response or timeout
             tokio::select! {
-                response = &mut recv => return Ok(response.unwrap()),
+                response = &mut recv => {
+                    METRICS.in_flight.dec();
+                    return Ok(response.unwrap());
+                }
                 _ = tokio::time::sleep(TIMEOUT) => {}
             }
             info!("Timeout, resending request {}", counter);
