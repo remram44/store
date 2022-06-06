@@ -1,5 +1,6 @@
 pub mod daemon;
 mod file_store;
+mod mem_store;
 
 use std::io::Error as IoError;
 

@@ -14,11 +14,11 @@ use std::fmt::Debug;
 pub struct DeviceId(pub [u8; 16]);
 
 /// The name of a storage pool.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PoolName(pub String);
 
 /// The name of an object, which can be freely picked by clients.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ObjectId(pub Vec<u8>);
 
 /// The ID for a group of objects.

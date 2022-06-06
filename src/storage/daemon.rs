@@ -13,6 +13,7 @@ use tokio::net::UdpSocket;
 use crate::{DeviceId, ObjectId, PoolName};
 use super::StorageBackend;
 use super::file_store::FileStore;
+use super::mem_store::MemStore;
 
 #[derive(Clone)]
 struct Metrics {
@@ -70,22 +71,14 @@ pub struct StorageDaemon {
 struct StorageDaemonPeer {
 }
 
-pub async fn run_storage_daemon(
-    peer_address: SocketAddr,
-    peer_cert: &Path,
-    peer_key: &Path,
-    peer_ca_cert: &Path,
-    listen_address: SocketAddr,
-    storage_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize backend
+pub fn create_file_store(storage_dir: &Path) -> Result<(FileStore, DeviceId), IoError> {
     let create = if storage_dir.exists() {
         if !storage_dir.is_dir() {
             error!("Storage path exists and is not a directory");
-            return Err(Box::new(IoError::new(
+            return Err(IoError::new(
                 ErrorKind::AlreadyExists,
                 "Storage path exists and is not a directory",
-            )));
+            ));
         }
 
         // Check layout
@@ -95,10 +88,10 @@ pub async fn run_storage_daemon(
             false
         } else {
             for _ in std::fs::read_dir(storage_dir)? {
-                return Err(Box::new(IoError::new(
+                return Err(IoError::new(
                     ErrorKind::AlreadyExists,
                     "Storage path exists and is not an empty directory",
-                )));
+                ));
             }
             // It's empty
             true
@@ -109,7 +102,7 @@ pub async fn run_storage_daemon(
         true
     };
 
-    let (storage_backend, device_id) = if create {
+    if create {
         warn!("Creating new file store");
 
         // Generate a random device ID
@@ -124,7 +117,7 @@ pub async fn run_storage_daemon(
         id.write_all(&device_id.0)?;
 
         // Open the store
-        (FileStore::open(storage_dir.to_owned()), device_id)
+        Ok((FileStore::open(storage_dir.to_owned()), device_id))
     } else {
         // Read device ID from "store.id"
         let mut bytes = [0; 16];
@@ -134,9 +127,31 @@ pub async fn run_storage_daemon(
         info!("Read device ID {:?}", device_id);
 
         // Open the store
-        (FileStore::open(storage_dir.to_owned()), device_id)
-    };
-    let storage_backend = Arc::new(storage_backend);
+        Ok((FileStore::open(storage_dir.to_owned()), device_id))
+    }
+}
+
+pub fn create_mem_store() -> (MemStore, DeviceId) {
+    // Generate a random device ID
+    let mut rng = thread_rng();
+    let mut bytes = [0; 16];
+    rng.fill(&mut bytes);
+    let device_id = DeviceId(bytes);
+    info!("Generated ID: {:?}", device_id);
+
+    (MemStore::default(), device_id)
+}
+
+pub async fn run_storage_daemon(
+    peer_address: SocketAddr,
+    peer_cert: &Path,
+    peer_key: &Path,
+    peer_ca_cert: &Path,
+    listen_address: SocketAddr,
+    storage_backend: Box<dyn StorageBackend>,
+    device_id: DeviceId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let storage_backend: Arc<dyn StorageBackend> = storage_backend.into();
 
     let storage_daemon = StorageDaemon {
         device_id,
@@ -151,7 +166,7 @@ pub async fn run_storage_daemon(
         info!("Listening for client connections on {}", listen_address);
         let socket = UdpSocket::bind(listen_address).await?;
         let socket = Arc::new(socket);
-        serve_clients(socket, storage_daemon.clone(), storage_backend.clone())
+        serve_clients(socket, storage_daemon.clone(), storage_backend)
     };
 
     clients_fut.await?;
