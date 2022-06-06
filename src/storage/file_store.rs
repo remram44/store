@@ -91,10 +91,8 @@ impl StorageBackend for FileStore {
         let path = self.path.join(enc_id);
         std::fs::create_dir_all(path.parent().unwrap())?;
         let mut file = OpenOptions::new().create(true).write(true).truncate(false).open(path)?;
-        let size = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(offset as u64))?;
-        file.write_all(data)?;
-        file.set_len(size.max((offset + data.len()) as u64))
+        file.write_all(data)
     }
 
     fn delete_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<(), IoError> {
