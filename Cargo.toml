@@ -22,7 +22,11 @@ lazy_static = "1.2.0"
 log = "0.4"
 prometheus = "0.13"
 rand = "0.8"
+rocksdb = { version = "0.18", optional = true }
 rustls-pemfile = "0.2"
 sha2 = "0.10"
 tokio = { version = "1.18", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tokio-rustls = "0.23"
+
+[features]
+default = ["rocksdb"]
