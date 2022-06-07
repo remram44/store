@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::{ObjectId, PoolName};
 use super::StorageBackend;
 
+/// A storage backend storing each object in a separate file.
 pub struct FileStore {
     path: PathBuf,
 }

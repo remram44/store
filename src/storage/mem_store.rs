@@ -9,6 +9,10 @@ use super::StorageBackend;
 #[derive(Default)]
 struct InnerStore(HashMap<PoolName, HashMap<ObjectId, Vec<u8>>>);
 
+/// A storage backend keeping all data in memory, in a HashMap.
+///
+/// This is NOT persistent, the data will be lost when the process ends or the
+/// MemStore object is dropped.
 #[derive(Clone, Default)]
 pub struct MemStore(Arc<Mutex<InnerStore>>);
 
