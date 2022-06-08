@@ -414,8 +414,10 @@ fn main() {
             let listen_key = s_matches.value_of_os("listen-key").unwrap();
             let listen_key = Path::new(listen_key);
 
-            runtime.build().unwrap().block_on(
-                run_master(
+            runtime
+                .build()
+                .unwrap()
+                .block_on(run_master(
                     peer_address,
                     peer_cert,
                     peer_key,
@@ -423,8 +425,8 @@ fn main() {
                     listen_address,
                     listen_cert,
                     listen_key,
-                )
-            ).unwrap();
+                ))
+                .unwrap();
         }
         Some("file-store") => {
             use store::storage::daemon::run_storage_daemon;
@@ -443,16 +445,16 @@ fn main() {
             let peer_ca_cert = s_matches.value_of_os("peer-ca-cert").unwrap();
             let peer_ca_cert = Path::new(peer_ca_cert);
             let listen_address = s_matches.value_of("listen-address").unwrap();
-            let listen_address: SocketAddr = check!(
-                listen_address.parse(),
-                "Invalid listen-address",
-            );
+            let listen_address: SocketAddr =
+                check!(listen_address.parse(), "Invalid listen-address",);
             let storage_dir = s_matches.value_of_os("dir").unwrap();
             let storage_dir = Path::new(storage_dir);
             let (storage_backend, device_id) = check!(create_file_store(storage_dir));
 
-            runtime.build().unwrap().block_on(
-                run_storage_daemon(
+            runtime
+                .build()
+                .unwrap()
+                .block_on(run_storage_daemon(
                     peer_address,
                     peer_cert,
                     peer_key,
@@ -460,8 +462,8 @@ fn main() {
                     listen_address,
                     Box::new(storage_backend),
                     device_id,
-                )
-            ).unwrap();
+                ))
+                .unwrap();
         }
         Some("mem-store") => {
             use store::storage::daemon::run_storage_daemon;
@@ -486,8 +488,10 @@ fn main() {
             );
             let (storage_backend, device_id) = create_mem_store();
 
-            runtime.build().unwrap().block_on(
-                run_storage_daemon(
+            runtime
+                .build()
+                .unwrap()
+                .block_on(run_storage_daemon(
                     peer_address,
                     peer_cert,
                     peer_key,
@@ -495,8 +499,8 @@ fn main() {
                     listen_address,
                     Box::new(storage_backend),
                     device_id,
-                )
-            ).unwrap();
+                ))
+                .unwrap();
         }
         #[cfg(feature = "rocksdb")]
         Some("rocksdb-store") => {
@@ -516,16 +520,16 @@ fn main() {
             let peer_ca_cert = s_matches.value_of_os("peer-ca-cert").unwrap();
             let peer_ca_cert = Path::new(peer_ca_cert);
             let listen_address = s_matches.value_of("listen-address").unwrap();
-            let listen_address: SocketAddr = check!(
-                listen_address.parse(),
-                "Invalid listen-address",
-            );
+            let listen_address: SocketAddr =
+                check!(listen_address.parse(), "Invalid listen-address",);
             let storage_dir = s_matches.value_of_os("dir").unwrap();
             let storage_dir = Path::new(storage_dir);
             let (storage_backend, device_id) = check!(create_rocksdb_store(storage_dir));
 
-            runtime.build().unwrap().block_on(
-                run_storage_daemon(
+            runtime
+                .build()
+                .unwrap()
+                .block_on(run_storage_daemon(
                     peer_address,
                     peer_cert,
                     peer_key,
@@ -533,8 +537,8 @@ fn main() {
                     listen_address,
                     Box::new(storage_backend),
                     device_id,
-                )
-            ).unwrap();
+                ))
+                .unwrap();
         }
         Some("read") => {
             use store::client::create_client;
@@ -556,7 +560,7 @@ fn main() {
                         eprintln!("Invalid offset");
                         std::process::exit(2);
                     }
-                }
+                },
             };
             let length: Option<u32> = match s_matches.value_of("length") {
                 None => None,
@@ -566,26 +570,34 @@ fn main() {
                         eprintln!("Invalid length");
                         std::process::exit(2);
                     }
-                }
+                },
             };
 
-            runtime.build().unwrap().block_on(
-                async move {
-                    let client = create_client(
-                        storage_daemon_address,
-                        PoolName(pool.to_owned()),
-                    ).await?;
+            runtime
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    let client =
+                        create_client(storage_daemon_address, PoolName(pool.to_owned())).await?;
                     let data = match (offset, length) {
                         (None, None) => client.read_object(&object_id).await?,
-                        (offset, length) => client.read_part(&object_id, offset.unwrap_or(0), length.unwrap_or(u32::MAX)).await?,
+                        (offset, length) => {
+                            client
+                                .read_part(
+                                    &object_id,
+                                    offset.unwrap_or(0),
+                                    length.unwrap_or(u32::MAX),
+                                )
+                                .await?
+                        }
                     };
                     match data {
                         None => eprintln!("No such key"),
                         Some(bytes) => std::io::stdout().write_all(&bytes).unwrap(),
                     }
-                    Ok(()) as Result <(), Box<dyn std::error::Error>>
-                }
-            ).unwrap();
+                    Ok(()) as Result<(), Box<dyn std::error::Error>>
+                })
+                .unwrap();
         }
         Some("write") => {
             use store::client::create_client;
@@ -607,14 +619,17 @@ fn main() {
                         eprintln!("Invalid offset");
                         std::process::exit(2);
                     }
-                }
+                },
             };
             let data: Cow<[u8]> = {
                 let data_literal = s_matches.value_of("data-literal");
                 let data_file = s_matches.value_of_os("data-file");
                 if data_literal.is_some() && data_file.is_some() {
                     eprintln!("Please provide EITHER --data-literal or --data-file");
-                    cli.find_subcommand_mut("write").unwrap().print_help().expect("Can't print help");
+                    cli.find_subcommand_mut("write")
+                        .unwrap()
+                        .print_help()
+                        .expect("Can't print help");
                     std::process::exit(2);
                 } else if let Some(d) = data_literal {
                     Cow::Borrowed(d.as_bytes())
@@ -636,13 +651,18 @@ fn main() {
                     }
                 } else {
                     eprintln!("Data missing, please provide --data-literal or --data-file");
-                    cli.find_subcommand_mut("write").unwrap().print_help().expect("Can't print help");
+                    cli.find_subcommand_mut("write")
+                        .unwrap()
+                        .print_help()
+                        .expect("Can't print help");
                     std::process::exit(2);
                 }
             };
 
-            runtime.build().unwrap().block_on(
-                async move {
+            runtime
+                .build()
+                .unwrap()
+                .block_on(async move {
                     let client = create_client(
                         storage_daemon_address,
                         PoolName(pool.to_owned()),
@@ -651,9 +671,9 @@ fn main() {
                         None => client.write_object(&object_id, &data).await?,
                         Some(offset) => client.write_part(&object_id, offset, &data).await?,
                     }
-                    Ok(()) as Result <(), Box<dyn std::error::Error>>
-                }
-            ).unwrap();
+                    Ok(()) as Result<(), Box<dyn std::error::Error>>
+                })
+                .unwrap();
         }
         Some("delete") => {
             use store::client::create_client;
@@ -668,16 +688,18 @@ fn main() {
             let object_id = s_matches.value_of("object-id").unwrap();
             let object_id = ObjectId(object_id.as_bytes().to_owned());
 
-            runtime.build().unwrap().block_on(
-                async move {
+            runtime
+                .build()
+                .unwrap()
+                .block_on(async move {
                     let client = create_client(
                         storage_daemon_address,
                         PoolName(pool.to_owned()),
                     ).await?;
                     client.delete_object(&object_id).await?;
-                    Ok(()) as Result <(), Box<dyn std::error::Error>>
-                }
-            ).unwrap();
+                    Ok(()) as Result<(), Box<dyn std::error::Error>>
+                })
+                .unwrap();
         }
         _ => {
             cli.print_help().expect("Can't print help");

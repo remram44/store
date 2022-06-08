@@ -25,10 +25,14 @@ pub fn start_http_server(addr: SocketAddr) {
         let mut runtime = tokio::runtime::Builder::new_current_thread();
         runtime.enable_all();
         let runtime = runtime.build().unwrap();
-        runtime.block_on(async move {
-            Server::bind(&addr).serve(make_service_fn(|_| async {
-                Ok::<_, hyper::Error>(service_fn(serve_req))
-            })).await
-        }).unwrap();
+        runtime
+            .block_on(async move {
+                Server::bind(&addr)
+                    .serve(make_service_fn(|_| async {
+                        Ok::<_, hyper::Error>(service_fn(serve_req))
+                    }))
+                    .await
+            })
+            .unwrap();
     });
 }

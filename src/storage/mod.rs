@@ -34,28 +34,70 @@ fn test_backend<S: StorageBackend>(storage: S) {
 
     // Write whole object
     storage.write_object(&pool1, obj1.clone(), b"hello world!").unwrap();
-    assert_eq!(storage.read_object(&pool1, obj1.clone()).unwrap().as_deref(), Some(b"hello world!" as &[u8]));
+    assert_eq!(
+        storage
+            .read_object(&pool1, obj1.clone())
+            .unwrap()
+            .as_deref(),
+        Some(b"hello world!" as &[u8])
+    );
 
     // Write part into new object
     storage.write_part(&pool1, obj2.clone(), 5, b"hi").unwrap();
-    assert_eq!(storage.read_object(&pool1, obj2.clone()).unwrap().as_deref(), Some(b"\x00\x00\x00\x00\x00hi" as &[u8]));
+    assert_eq!(
+        storage
+            .read_object(&pool1, obj2.clone())
+            .unwrap()
+            .as_deref(),
+        Some(b"\x00\x00\x00\x00\x00hi" as &[u8])
+    );
 
     // Write part into existing object
     storage.write_part(&pool1, obj1.clone(), 3, b"xxx").unwrap();
-    assert_eq!(storage.read_object(&pool1, obj1.clone()).unwrap().as_deref(), Some(b"helxxxworld!" as &[u8]));
+    assert_eq!(
+        storage
+            .read_object(&pool1, obj1.clone())
+            .unwrap()
+            .as_deref(),
+        Some(b"helxxxworld!" as &[u8])
+    );
 
     // Write part past end of existing object
     storage.write_part(&pool1, obj1.clone(), 10, b"!!!").unwrap();
-    assert_eq!(storage.read_object(&pool1, obj1.clone()).unwrap().as_deref(), Some(b"helxxxworl!!!" as &[u8]));
+    assert_eq!(
+        storage
+            .read_object(&pool1, obj1.clone())
+            .unwrap()
+            .as_deref(),
+        Some(b"helxxxworl!!!" as &[u8])
+    );
 
     // Read part of object
-    assert_eq!(storage.read_part(&pool1, obj1.clone(), 4, 3).unwrap().as_deref(), Some(b"xxw" as &[u8]));
+    assert_eq!(
+        storage
+            .read_part(&pool1, obj1.clone(), 4, 3)
+            .unwrap()
+            .as_deref(),
+        Some(b"xxw" as &[u8])
+    );
 
     // Read too big a part
-    assert_eq!(storage.read_part(&pool1, obj1.clone(), 4, 20).unwrap().as_deref(), Some(b"xxworl!!!" as &[u8]));
+    assert_eq!(
+        storage
+            .read_part(&pool1, obj1.clone(), 4, 20)
+            .unwrap()
+            .as_deref(),
+        Some(b"xxworl!!!" as &[u8])
+    );
 
     // Read fully outside part
-    assert_eq!(storage.read_part(&pool1, obj1.clone(), 20, 20).unwrap().as_deref(), Some(b"" as &[u8]));
+    assert_eq!(
+        storage
+            .read_part(&pool1, obj1.clone(), 20, 20)
+            .unwrap()
+            .as_deref(),
+        Some(b"" as &[u8])
+    );
 
     // Read non-existent object
     assert_eq!(storage.read_object(&pool1, obj3.clone()).unwrap(), None);

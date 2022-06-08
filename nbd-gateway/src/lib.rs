@@ -85,7 +85,9 @@ impl Server for NbdGateway {
 
     fn config(key: &str, value: &str) -> Result<()> {
         if key == "storage_daemon_address" {
-            let addr = value.parse().map_err(|_| Error::new(libc::EINVAL, "Invalid storage daemon address"))?;
+            let addr = value
+                .parse()
+                .map_err(|_| Error::new(libc::EINVAL, "Invalid storage daemon address"))?;
             CONFIG.lock().unwrap().storage_daemon_address = Some(addr);
         } else if key == "pool" {
             CONFIG.lock().unwrap().pool = Some(PoolName(value.to_owned()));
@@ -95,7 +97,10 @@ impl Server for NbdGateway {
             let value = value.parse().map_err(|_| Error::new(libc::EINVAL, "Invalid address for the metrics"))?;
             CONFIG.lock().unwrap().metrics = Some(value);
         } else {
-            return Err(Error::new(libc::EINVAL, format!("Invalid configuration option {}", key)));
+            return Err(Error::new(
+                libc::EINVAL,
+                format!("Invalid configuration option {}", key),
+            ));
         }
         Ok(())
     }
@@ -114,7 +119,10 @@ impl Server for NbdGateway {
 
         let config = CONFIG.lock().unwrap();
         if config.storage_daemon_address.is_none() {
-            Err(Error::new(libc::EINVAL, "Missing option storage_daemon_address"))
+            Err(Error::new(
+                libc::EINVAL,
+                "Missing option storage_daemon_address",
+            ))
         } else if config.pool.is_none() {
             Err(Error::new(libc::EINVAL, "Missing option pool"))
         } else if config.image.is_none() {
@@ -137,23 +145,19 @@ impl Server for NbdGateway {
             let runtime = runtime.build().unwrap();
 
             // Create client
-            let client = runtime.block_on(
-                create_client(
-                    config.storage_daemon_address.unwrap(),
-                    config.pool.as_ref().unwrap().clone(),
-                ),
-            );
-            let client = client.map_err(|e| Error::new(
-                libc::EIO,
-                format!("Error connecting client: {}", e),
-            ))?;
+            let client = runtime.block_on(create_client(
+                config.storage_daemon_address.unwrap(),
+                config.pool.as_ref().unwrap().clone(),
+            ));
+            let client = client
+                .map_err(|e| Error::new(libc::EIO, format!("Error connecting client: {}", e)))?;
 
             // Read size from the metadata object
-            let size = runtime.block_on(read_image_metadata(&client, &base_name))
-                .map_err(|e|  Error::new(
-                    libc::EIO,
-                    format!("Error getting metadata object: {}", e),
-                ))?;
+            let size = runtime
+                .block_on(read_image_metadata(&client, &base_name))
+                .map_err(|e| {
+                    Error::new(libc::EIO, format!("Error getting metadata object: {}", e))
+                })?;
 
             // Set the global
             *device = Some(BlockDeviceClient {

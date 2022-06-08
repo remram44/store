@@ -39,7 +39,12 @@ lazy_static! {
                 let writes = metrics.writes.get();
                 let resends = metrics.resends.get();
                 if reads != last_reads || writes != last_writes || resends != last_resends {
-                    info!("last 10s: {} reads, {} writes, {} resent packets", reads - last_reads, writes - last_writes, resends - last_resends);
+                    info!(
+                        "last 10s: {} reads, {} writes, {} resent packets",
+                        reads - last_reads,
+                        writes - last_writes,
+                        resends - last_resends
+                    );
                     last_reads = reads;
                     last_writes = writes;
                     last_resends = resends;
@@ -116,7 +121,10 @@ impl Client {
         match response[4] {
             1 => Ok(Some(response[5..].to_owned())),
             0 => Ok(None),
-            _ => Err(IoError::new(ErrorKind::InvalidData, "Invalid reply from storage daemon")),
+            _ => Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Invalid reply from storage daemon",
+            )),
         }
     }
 

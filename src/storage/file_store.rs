@@ -15,9 +15,7 @@ pub struct FileStore {
 
 impl FileStore {
     pub fn open(path: PathBuf) -> FileStore {
-        FileStore {
-            path,
-        }
+        FileStore { path }
     }
 }
 
@@ -85,7 +83,11 @@ impl StorageBackend for FileStore {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         std::fs::create_dir_all(path.parent().unwrap())?;
-        let mut file = OpenOptions::new().create(true).write(true).truncate(true).open(path)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)?;
         file.write_all(data)
     }
 
@@ -93,7 +95,11 @@ impl StorageBackend for FileStore {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         std::fs::create_dir_all(path.parent().unwrap())?;
-        let mut file = OpenOptions::new().create(true).write(true).truncate(false).open(path)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path)?;
         file.seek(SeekFrom::Start(offset as u64))?;
         file.write_all(data)
     }
@@ -180,7 +186,10 @@ mod tests {
     #[test]
     fn test_encode() {
         assert_eq!(
-            encode_object_id(&PoolName("testpool".to_owned()), ObjectId((b"hello\0world!" as &[u8]).to_owned())),
+            encode_object_id(
+                &PoolName("testpool".to_owned()),
+                ObjectId((b"hello\0world!" as &[u8]).to_owned())
+            ),
             "testpool/6d74/68656c6c6f00776f726c6421",
         );
     }

@@ -34,8 +34,16 @@ lazy_static! {
                 let reads = metrics.reads.get();
                 let writes = metrics.writes.get();
                 let invalid_requests = metrics.invalid_requests.get();
-                if reads != last_reads || writes != last_writes || invalid_requests != last_invalid_requests {
-                    info!("last 10s: {} reads, {} writes, {} invalid requests", reads - last_reads, writes - last_writes, invalid_requests - last_invalid_requests);
+                if reads != last_reads
+                    || writes != last_writes
+                    || invalid_requests != last_invalid_requests
+                {
+                    info!(
+                        "last 10s: {} reads, {} writes, {} invalid requests",
+                        reads - last_reads,
+                        writes - last_writes,
+                        invalid_requests - last_invalid_requests
+                    );
                     last_reads = reads;
                     last_writes = writes;
                     last_invalid_requests = invalid_requests;

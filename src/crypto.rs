@@ -101,7 +101,7 @@ impl KeyPair {
         }
 
         // Now add message digest
-        let mut mac = <Hmac::<Sha256> as Mac>::new_from_slice(&self.mac_key).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.mac_key).unwrap();
         mac.update(&result);
         let mac: [u8; MAC_SIZE] = mac.finalize().into_bytes().into();
         result.extend_from_slice(&mac);
@@ -138,7 +138,7 @@ impl KeyPair {
         }
 
         // Check MAC
-        let mut mac = <Hmac::<Sha256> as Mac>::new_from_slice(&self.mac_key).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.mac_key).unwrap();
         mac.update(&data[0..data.len() - MAC_SIZE]);
         match mac.verify_slice(&data[data.len() - MAC_SIZE..]) {
             Ok(()) => {}
@@ -236,9 +236,11 @@ mod tests {
             \x57\x90\x60\xf7\xbe\x1f\x0f\xa4\x7d\xc4\xb2\x5d\x88\x59\x37\x60\
             \x4e\x11\x9f\x0e\x77\xbf\x1f\xb1\x5a\xc9\xed\x3f\xde\xdc\xf4\x07\
             \x6c\xec\xbd\xa9\xe8\x7d\x8f\xfe\x81\x78\xa4\xdf\x4a\xc9\x6d\x49\
-            \xdc\x15\x11\x95\x68\x40\xde\x9b\x6e\xe9\x1b\xc2\xda\xe4\x74\x2b");
+            \xdc\x15\x11\x95\x68\x40\xde\x9b\x6e\xe9\x1b\xc2\xda\xe4\x74\x2b",
+        );
         // MAC
-        expected.extend_from_slice(b"\
+        expected.extend_from_slice(
+            b"\
           \xf5\x4d\x3c\xa0\x76\x5d\xef\xab\x12\x5b\xe1\x6f\x62\x6b\x85\x20\
           \x82\x50\xc5\x55\x89\xe4\x13\xc0\x86\x1a\x8c\xf4\x2d\xa7\x3f\xd4");
         assert_eq!(

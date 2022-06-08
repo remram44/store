@@ -64,7 +64,12 @@ fn compute_location(node: &Node, group_id: &GroupId, replica_num: u32, level: u3
 
                     // Pick the entry
                     let index = hash as usize % bucket.children.len();
-                    compute_location(&bucket.children[index].node, group_id, replica_num, level + 1)
+                    compute_location(
+                        &bucket.children[index].node,
+                        group_id,
+                        replica_num,
+                        level + 1,
+                    )
                 }
                 Algorithm::List => {
                     // Compute total weight
@@ -74,11 +79,21 @@ fn compute_location(node: &Node, group_id: &GroupId, replica_num: u32, level: u3
                     let mut hash = compute_hash(level, group_id, replica_num, 0) % total_weight;
                     for (i, child) in bucket.children[0..bucket.children.len() - 1].iter().enumerate() {
                         if hash < child.weight {
-                            return compute_location(&bucket.children[i].node, group_id, replica_num, level + 1);
+                            return compute_location(
+                                &bucket.children[i].node,
+                                group_id,
+                                replica_num,
+                                level + 1,
+                            );
                         }
                         hash -= child.weight;
                     }
-                    compute_location(&bucket.children[bucket.children.len() - 1].node, group_id, replica_num, level + 1)
+                    compute_location(
+                        &bucket.children[bucket.children.len() - 1].node,
+                        group_id,
+                        replica_num,
+                        level + 1,
+                    )
                 }
                 Algorithm::Straw(ref factors) => {
                     // Draw straws for every entry, scaled by the factors
@@ -92,7 +107,12 @@ fn compute_location(node: &Node, group_id: &GroupId, replica_num: u32, level: u3
                         }
                     }
 
-                    compute_location(&bucket.children[best].node, group_id, replica_num, level + 1)
+                    compute_location(
+                        &bucket.children[best].node,
+                        group_id,
+                        replica_num,
+                        level + 1,
+                    )
                 }
             }
         }
@@ -106,7 +126,9 @@ pub fn build_straw_bucket(children: Vec<NodeEntry>) -> Bucket {
 
     // Turn given weights into probabilities
     let total: u32 = children.iter().map(|i| i.weight).sum();
-    let probs: Vec<f64> = (0..children.len()).map(|i| children[order[i]].weight as f64 / total as f64).collect();
+    let probs: Vec<f64> = (0..children.len())
+        .map(|i| children[order[i]].weight as f64 / total as f64)
+        .collect();
 
     // Compute factors for desired probabilities
     let mut factors: Vec<u32> = vec![0; children.len()];
@@ -141,7 +163,10 @@ mod tests {
         let total: usize = counts.iter().sum();
         let frequencies: Vec<f32> = counts.iter().map(|&c| c as f32 / total as f32).collect();
         assert!(
-            frequencies.iter().enumerate().all(|(i, f)| f - 0.01 <= target[i] && f + 0.01 >= target[i]),
+            frequencies
+                .iter()
+                .enumerate()
+                .all(|(i, f)| f - 0.01 <= target[i] && f + 0.01 >= target[i]),
             "{:.2?} != {:.2?}",
             frequencies,
             target,
