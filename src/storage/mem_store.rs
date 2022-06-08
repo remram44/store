@@ -26,7 +26,7 @@ impl StorageBackend for MemStore {
     fn read_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
         let store = self.0.lock().unwrap();
         let object = store.0.get(pool).and_then(|p| p.get(&object_id));
-        let part = object.map(|o| o[offset..len].to_owned());
+        let part = object.map(|o| o[o.len().min(offset)..o.len().min(offset + len)].to_owned());
         Ok(part)
     }
 
@@ -60,5 +60,16 @@ impl StorageBackend for MemStore {
         let mut store = self.0.lock().unwrap();
         store.0.get_mut(pool).map(|p| p.remove(&object_id));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MemStore;
+
+    #[test]
+    fn test_memstore_common() {
+        let storage = MemStore::default();
+        super::super::test_backend(storage);
     }
 }

@@ -67,7 +67,7 @@ impl StorageBackend for FileStore {
         let mut result = vec![0; BUF_SIZE.min(len)];
         let mut read_bytes = 0;
         while read_bytes < len {
-            let s = result.len().min(len);
+            let s = len.min(result.len());
             let n = file.read(&mut result[read_bytes..s])?;
             if n == 0 {
                 break;
@@ -75,7 +75,7 @@ impl StorageBackend for FileStore {
             read_bytes += n;
             result.resize(len.min(read_bytes + BUF_SIZE), 0);
         }
-        result.shrink_to(read_bytes);
+        result.resize(read_bytes, 0);
         Ok(Some(result))
     }
 
@@ -109,8 +109,11 @@ impl StorageBackend for FileStore {
 
 #[cfg(test)]
 mod tests {
+    use tempdir::TempDir;
+    use std::path::Path;
+
     use crate::{ObjectId, PoolName};
-    use super::encode_object_id;
+    use super::{FileStore, encode_object_id};
 
     #[test]
     fn test_encode() {
@@ -118,5 +121,13 @@ mod tests {
             encode_object_id(&PoolName("testpool".to_owned()), ObjectId((b"hello\0world!" as &[u8]).to_owned())),
             "testpool/6d74/68656c6c6f00776f726c6421",
         );
+    }
+
+    #[test]
+    fn test_filestore_common() {
+        let path = TempDir::new("store_filestore_test").unwrap();
+        let path: &Path = path.as_ref();
+        let storage = FileStore::open(path.to_owned());
+        super::super::test_backend(storage);
     }
 }

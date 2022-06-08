@@ -46,7 +46,7 @@ impl StorageBackend for RocksdbStore {
     fn read_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
         self.read_object(pool, object_id).map(
             |r| r.map(
-                |v| v[offset..offset + len].to_owned()
+                |v| v[v.len().min(offset)..v.len().min(offset + len)].to_owned()
             )
         )
     }
@@ -62,6 +62,7 @@ impl StorageBackend for RocksdbStore {
         let key = key(pool, object_id);
         match self.0.get(&key).to_io_err()? {
             Some(mut value) => {
+                value.resize(value.len().max(offset + data.len()), 0);
                 value[offset..offset + data.len()].clone_from_slice(data);
                 self.0.put(&key, value).to_io_err()
             }
@@ -76,5 +77,21 @@ impl StorageBackend for RocksdbStore {
 
     fn delete_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<(), IoError> {
         self.0.delete(&key(pool, object_id)).to_io_err()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempdir::TempDir;
+    use std::path::Path;
+
+    use super::RocksdbStore;
+
+    #[test]
+    fn test_rdbstore_common() {
+        let path = TempDir::new("store_rocksdb_test").unwrap();
+        let path: &Path = path.as_ref();
+        let storage = RocksdbStore::open(path).unwrap();
+        super::super::test_backend(storage);
     }
 }
