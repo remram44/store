@@ -1,9 +1,11 @@
+use log::info;
+use rand::{Rng, thread_rng};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::io::Error as IoError;
 use std::sync::{Arc, Mutex};
 
-use crate::{ObjectId, PoolName};
+use crate::{DeviceId, ObjectId, PoolName};
 use super::StorageBackend;
 
 #[derive(Default)]
@@ -61,6 +63,17 @@ impl StorageBackend for MemStore {
         store.0.get_mut(pool).map(|p| p.remove(&object_id));
         Ok(())
     }
+}
+
+pub fn create_mem_store() -> (MemStore, DeviceId) {
+    // Generate a random device ID
+    let mut rng = thread_rng();
+    let mut bytes = [0; 16];
+    rng.fill(&mut bytes);
+    let device_id = DeviceId(bytes);
+    info!("Generated ID: {:?}", device_id);
+
+    (MemStore::default(), device_id)
 }
 
 #[cfg(test)]

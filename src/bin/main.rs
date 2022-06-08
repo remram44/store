@@ -378,7 +378,8 @@ fn main() {
             ).unwrap();
         }
         Some("file-store") => {
-            use store::storage::daemon::{create_file_store, run_storage_daemon};
+            use store::storage::daemon::run_storage_daemon;
+            use store::storage::file_store::create_file_store;
 
             let s_matches = matches.subcommand_matches("file-store").unwrap();
             let peer_address = s_matches.value_of("peer-address").unwrap();
@@ -414,7 +415,8 @@ fn main() {
             ).unwrap();
         }
         Some("mem-store") => {
-            use store::storage::daemon::{create_mem_store, run_storage_daemon};
+            use store::storage::daemon::run_storage_daemon;
+            use store::storage::mem_store::create_mem_store;
 
             let s_matches = matches.subcommand_matches("mem-store").unwrap();
             let peer_address = s_matches.value_of("peer-address").unwrap();

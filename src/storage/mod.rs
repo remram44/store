@@ -1,8 +1,8 @@
 pub mod daemon;
-mod file_store;
-mod mem_store;
+pub mod file_store;
+pub mod mem_store;
 #[cfg(feature = "rocksdb")]
-mod rocksdb_store;
+pub mod rocksdb_store;
 
 use std::io::Error as IoError;
 

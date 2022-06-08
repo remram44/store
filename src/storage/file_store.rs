@@ -1,9 +1,11 @@
+use log::{error, info, warn};
+use rand::{Rng, thread_rng};
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions, remove_file};
 use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::{ObjectId, PoolName};
+use crate::{DeviceId, ObjectId, PoolName};
 use super::StorageBackend;
 
 /// A storage backend storing each object in a separate file.
@@ -104,6 +106,66 @@ impl StorageBackend for FileStore {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
         }
+    }
+}
+
+pub fn create_file_store(storage_dir: &Path) -> Result<(FileStore, DeviceId), IoError> {
+    let create = if storage_dir.exists() {
+        if !storage_dir.is_dir() {
+            error!("Storage path exists and is not a directory");
+            return Err(IoError::new(
+                ErrorKind::AlreadyExists,
+                "Storage path exists and is not a directory",
+            ));
+        }
+
+        // Check layout
+        if storage_dir.join("store.id").is_file() {
+            // It's ready to go
+            info!("Using existing store");
+            false
+        } else {
+            for _ in std::fs::read_dir(storage_dir)? {
+                return Err(IoError::new(
+                    ErrorKind::AlreadyExists,
+                    "Storage path exists and is not an empty directory",
+                ));
+            }
+            // It's empty
+            true
+        }
+    } else {
+        // It doesn't exist, make an empty directory
+        std::fs::create_dir(storage_dir)?;
+        true
+    };
+
+    if create {
+        warn!("Creating new file store");
+
+        // Generate a random device ID
+        let mut rng = thread_rng();
+        let mut bytes = [0; 16];
+        rng.fill(&mut bytes);
+        let device_id = DeviceId(bytes);
+        info!("Generated ID: {:?}", device_id);
+
+        // Write it to "store.id"
+        let mut id = File::create(storage_dir.join("store.id"))?;
+        id.write_all(&device_id.0)?;
+
+        // Open the store
+        Ok((FileStore::open(storage_dir.to_owned()), device_id))
+    } else {
+        // Read device ID from "store.id"
+        let mut bytes = [0; 16];
+        let mut id = File::open(storage_dir.join("store.id"))?;
+        id.read_exact(&mut bytes)?;
+        let device_id = DeviceId(bytes);
+        info!("Read device ID {:?}", device_id);
+
+        // Open the store
+        Ok((FileStore::open(storage_dir.to_owned()), device_id))
     }
 }
 
