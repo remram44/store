@@ -19,27 +19,27 @@ struct InnerStore(HashMap<PoolName, HashMap<ObjectId, Vec<u8>>>);
 pub struct MemStore(Arc<Mutex<InnerStore>>);
 
 impl StorageBackend for MemStore {
-    fn read_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<Option<Vec<u8>>, IoError> {
+    fn read_object(&self, pool: &PoolName, object_id: &ObjectId) -> Result<Option<Vec<u8>>, IoError> {
         let store = self.0.lock().unwrap();
         let object = store.0.get(pool).and_then(|p| p.get(&object_id));
         Ok(object.cloned())
     }
 
-    fn read_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
+    fn read_part(&self, pool: &PoolName, object_id: &ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
         let store = self.0.lock().unwrap();
         let object = store.0.get(pool).and_then(|p| p.get(&object_id));
         let part = object.map(|o| o[o.len().min(offset)..o.len().min(offset + len)].to_owned());
         Ok(part)
     }
 
-    fn write_object(&self, pool: &PoolName, object_id: ObjectId, data: &[u8]) -> Result<(), IoError> {
+    fn write_object(&self, pool: &PoolName, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
         let mut store = self.0.lock().unwrap();
         let pool = store.0.entry(pool.to_owned()).or_default();
-        pool.insert(object_id, data.to_owned());
+        pool.insert(object_id.clone(), data.to_owned());
         Ok(())
     }
 
-    fn write_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
+    fn write_part(&self, pool: &PoolName, object_id: &ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
         let mut store = self.0.lock().unwrap();
         let pool = store.0.entry(pool.to_owned()).or_default();
         match pool.entry(object_id.to_owned()) {
@@ -58,7 +58,7 @@ impl StorageBackend for MemStore {
         Ok(())
     }
 
-    fn delete_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<(), IoError> {
+    fn delete_object(&self, pool: &PoolName, object_id: &ObjectId) -> Result<(), IoError> {
         let mut store = self.0.lock().unwrap();
         store.0.get_mut(pool).map(|p| p.remove(&object_id));
         Ok(())

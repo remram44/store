@@ -19,7 +19,7 @@ impl FileStore {
     }
 }
 
-fn encode_object_id(pool: &PoolName, object_id: ObjectId) -> String {
+fn encode_object_id(pool: &PoolName, object_id: &ObjectId) -> String {
     // <pool>/
     let mut result = Vec::new();
     result.extend_from_slice(pool.0.as_bytes());
@@ -41,7 +41,7 @@ fn encode_object_id(pool: &PoolName, object_id: ObjectId) -> String {
 }
 
 impl StorageBackend for FileStore {
-    fn read_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<Option<Vec<u8>>, IoError> {
+    fn read_object(&self, pool: &PoolName, object_id: &ObjectId) -> Result<Option<Vec<u8>>, IoError> {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         let mut file = match File::open(path) {
@@ -54,7 +54,7 @@ impl StorageBackend for FileStore {
         Ok(Some(result))
     }
 
-    fn read_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
+    fn read_part(&self, pool: &PoolName, object_id: &ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         let mut file = match File::open(path) {
@@ -79,7 +79,7 @@ impl StorageBackend for FileStore {
         Ok(Some(result))
     }
 
-    fn write_object(&self, pool: &PoolName, object_id: ObjectId, data: &[u8]) -> Result<(), IoError> {
+    fn write_object(&self, pool: &PoolName, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         std::fs::create_dir_all(path.parent().unwrap())?;
@@ -91,7 +91,7 @@ impl StorageBackend for FileStore {
         file.write_all(data)
     }
 
-    fn write_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
+    fn write_part(&self, pool: &PoolName, object_id: &ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         std::fs::create_dir_all(path.parent().unwrap())?;
@@ -104,7 +104,7 @@ impl StorageBackend for FileStore {
         file.write_all(data)
     }
 
-    fn delete_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<(), IoError> {
+    fn delete_object(&self, pool: &PoolName, object_id: &ObjectId) -> Result<(), IoError> {
         let enc_id = encode_object_id(pool, object_id);
         let path = self.path.join(enc_id);
         match remove_file(path) {
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(
             encode_object_id(
                 &PoolName("testpool".to_owned()),
-                ObjectId((b"hello\0world!" as &[u8]).to_owned())
+                &ObjectId((b"hello\0world!" as &[u8]).to_owned())
             ),
             "testpool/6d74/68656c6c6f00776f726c6421",
         );

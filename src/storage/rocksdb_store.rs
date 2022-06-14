@@ -34,7 +34,7 @@ impl RocksdbStore {
     }
 }
 
-fn key(pool: &PoolName, object_id: ObjectId) -> Vec<u8> {
+fn key(pool: &PoolName, object_id: &ObjectId) -> Vec<u8> {
     let mut key = pool.0.as_bytes().to_owned();
     key.push(b'/');
     key.extend_from_slice(&object_id.0);
@@ -42,11 +42,11 @@ fn key(pool: &PoolName, object_id: ObjectId) -> Vec<u8> {
 }
 
 impl StorageBackend for RocksdbStore {
-    fn read_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<Option<Vec<u8>>, IoError> {
+    fn read_object(&self, pool: &PoolName, object_id: &ObjectId) -> Result<Option<Vec<u8>>, IoError> {
         self.0.get(&key(pool, object_id)).to_io_err()
     }
 
-    fn read_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
+    fn read_part(&self, pool: &PoolName, object_id: &ObjectId, offset: usize, len: usize) -> Result<Option<Vec<u8>>, IoError> {
         self.read_object(pool, object_id).map(
             |r| r.map(
                 |v| v[v.len().min(offset)..v.len().min(offset + len)].to_owned()
@@ -54,14 +54,14 @@ impl StorageBackend for RocksdbStore {
         )
     }
 
-    fn write_object(&self, pool: &PoolName, object_id: ObjectId, data: &[u8]) -> Result<(), IoError> {
+    fn write_object(&self, pool: &PoolName, object_id: &ObjectId, data: &[u8]) -> Result<(), IoError> {
         self.0.put(
             &key(pool, object_id),
             data,
         ).to_io_err()
     }
 
-    fn write_part(&self, pool: &PoolName, object_id: ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
+    fn write_part(&self, pool: &PoolName, object_id: &ObjectId, offset: usize, data: &[u8]) -> Result<(), IoError> {
         let key = key(pool, object_id);
         match self.0.get(&key).to_io_err()? {
             Some(mut value) => {
@@ -78,7 +78,7 @@ impl StorageBackend for RocksdbStore {
         }
     }
 
-    fn delete_object(&self, pool: &PoolName, object_id: ObjectId) -> Result<(), IoError> {
+    fn delete_object(&self, pool: &PoolName, object_id: &ObjectId) -> Result<(), IoError> {
         self.0.delete(&key(pool, object_id)).to_io_err()
     }
 }
