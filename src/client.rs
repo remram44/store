@@ -258,6 +258,7 @@ impl Client {
 pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -> Result<Client, Box<dyn std::error::Error>> {
     let device_id = DeviceId([0; 16]);
     let storage_map = StorageMap {
+        generation: 1,
         groups: 128,
         map_root: storage_map::Node::Device(device_id.clone()),
     };

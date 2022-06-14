@@ -6,8 +6,9 @@ use crate::hash::{compute_hash, compute_object_hash};
 /// This contains the tree used to map a group to a device, as well as the
 /// current number of groups.
 pub struct StorageMap {
-    pub(crate) groups: usize,
-    pub(crate) map_root: Node,
+    pub generation: u32,
+    pub groups: usize,
+    pub map_root: Node,
 }
 
 impl StorageMap {
@@ -185,6 +186,7 @@ mod tests {
         // Map objects to groups
         const GROUPS1: usize = 128;
         let map1 = StorageMap {
+            generation: 1,
             groups: GROUPS1,
             map_root: Node::Device(DeviceId([1; 16])),
         };
@@ -202,6 +204,7 @@ mod tests {
         // Map objects to groups using a different number of groups
         const GROUPS2: usize = 256;
         let map2 = StorageMap {
+            generation: 1,
             groups: GROUPS2,
             map_root: Node::Device(DeviceId([1; 16])),
         };

@@ -99,6 +99,7 @@ pub async fn run_storage_daemon(
     let storage_backend: Arc<dyn StorageBackend> = storage_backend.into();
 
     let storage_map = StorageMap {
+        generation: 1,
         groups: 128,
         map_root: Node::Device(device_id.clone()),
     };
