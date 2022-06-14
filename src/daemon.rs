@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use lazy_static::lazy_static;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::io::{Cursor, Error as IoError, ErrorKind, Read};
 use std::net::SocketAddr;
@@ -111,7 +111,7 @@ async fn serve_clients(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<Storage
     loop {
         let mut buf = [0; 65536];
         let (len, addr) = socket.recv_from(&mut buf).await?;
-        info!("Got packet from {}, size {}", addr, len);
+        debug!("Got packet from {}, size {}", addr, len);
         let msg = buf[0..len].to_owned();
 
         tokio::spawn(handle_client_request(
@@ -158,7 +158,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 ObjectId(object_id)
             };
 
-            info!("read_object {:?}", object_id);
+            debug!("read_object {:?}", object_id);
             let object = storage_backend.read_object(&pool_name, object_id)?;
             METRICS.reads.inc();
             let mut response = Vec::new();
@@ -183,7 +183,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             let offset = reader.read_u32::<BigEndian>()?;
             let len = reader.read_u32::<BigEndian>()?;
 
-            info!("read_part {:?} {} {}", object_id, offset, len);
+            debug!("read_part {:?} {} {}", object_id, offset, len);
             let object = storage_backend.read_part(&pool_name, object_id, offset as usize, len as usize)?;
             METRICS.reads.inc();
             let mut response = Vec::new();
@@ -207,7 +207,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             let data = &msg[reader.position() as usize..];
 
-            info!("write_object {:?} {}", object_id, data.len());
+            debug!("write_object {:?} {}", object_id, data.len());
             storage_backend.write_object(&pool_name, object_id, data)?;
             METRICS.writes.inc();
             let mut response = Vec::with_capacity(4);
@@ -225,7 +225,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             let offset = reader.read_u32::<BigEndian>()? as usize;
             let data = &msg[reader.position() as usize..];
 
-            info!("write_part {:?} {} {}", object_id, offset, data.len());
+            debug!("write_part {:?} {} {}", object_id, offset, data.len());
             storage_backend.write_part(&pool_name, object_id, offset, data)?;
             METRICS.writes.inc();
             let mut response = Vec::with_capacity(4);
@@ -240,7 +240,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 ObjectId(object_id)
             };
 
-            info!("delete_object {:?}", object_id);
+            debug!("delete_object {:?}", object_id);
             storage_backend.delete_object(&pool_name, object_id)?;
             METRICS.writes.inc();
             let mut response = Vec::with_capacity(4);

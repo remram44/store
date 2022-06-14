@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use lazy_static::lazy_static;
-use log::info;
+use log::{debug, info};
 use std::collections::HashMap;
 use std::net::{TcpStream, SocketAddr};
 use std::io::{Cursor, Error as IoError, ErrorKind, Write};
@@ -235,7 +235,7 @@ impl Client {
         // Unlock the mutex during network operations
         drop(client);
 
-        info!("Sending request {}, size {}", counter, request.len());
+        debug!("Sending request {}, size {}", counter, request.len());
         METRICS.in_flight.inc();
         loop {
             // Send the request
@@ -249,7 +249,7 @@ impl Client {
                 }
                 _ = tokio::time::sleep(TIMEOUT) => {}
             }
-            info!("Timeout, resending request {}", counter);
+            debug!("Timeout, resending request {}", counter);
             METRICS.resends.inc();
         }
     }
@@ -304,7 +304,7 @@ async fn receive_task(client: Arc<Mutex<ClientInner>>, udp_socket: Arc<UdpSocket
     let mut buf = [0; 65536];
     loop {
         let (len, addr) = udp_socket.recv_from(&mut buf).await?;
-        info!("Got packet from {}, size {}", addr, len);
+        debug!("Got packet from {}, size {}", addr, len);
         let msg = &buf[0..len];
         if msg.len() < 4 {
             continue;
@@ -314,7 +314,7 @@ async fn receive_task(client: Arc<Mutex<ClientInner>>, udp_socket: Arc<UdpSocket
         // Get the channel
         let mut client = client.lock().unwrap();
         if let Some((_, channel)) = client.response_channels.remove(&(addr, counter)) {
-            info!("Handling reply, counter={}", counter);
+            debug!("Handling reply, counter={}", counter);
             channel.send(msg.to_owned()).unwrap();
         }
     }
