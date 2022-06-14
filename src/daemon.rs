@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 
-use crate::{DeviceId, ObjectId, PoolName};
+use crate::{DeviceId, GroupId, ObjectId, PoolName};
 use super::storage::StorageBackend;
 use super::storage_map::{Node, StorageMap};
 
@@ -154,6 +154,75 @@ async fn handle_client_request(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex
         }
     }
     Ok(())
+}
+
+enum Location {
+    /// We are the only primary for this object.
+    Here(Vec<DeviceId>),
+    /// Request should be forwarded elsewhere.
+    Forward(DeviceId),
+    /// We are the primary but we can request from previous location if needed.
+    HereOrFallback(DeviceId, Vec<DeviceId>),
+}
+
+fn get_secondaries(map: &StorageMap, pool_name: &PoolName, group_id: &GroupId) -> Vec<DeviceId> {
+    (1..map.replicas).map(|replica_id| map.group_to_device(group_id, replica_id)).collect()
+}
+
+fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName, object_id: &ObjectId, device_id: &DeviceId) -> Result<Location, IoError> {
+    let daemon = storage_daemon.lock().unwrap();
+    let pool = match daemon.pools.get(pool_name) {
+        Some(p) => p,
+        None => return Err(IoError::new(ErrorKind::InvalidData, "Unknown pool")),
+    };
+
+    // Check that we are responsible for this object
+    match pool {
+        Pool::Normal(map) => {
+            let group_id = map.object_to_group(object_id);
+            let target_device = map.group_to_device(&group_id, 0);
+            if &target_device == device_id {
+                let secondaries = get_secondaries(map, pool_name, &group_id);
+                Ok(Location::Here(secondaries))
+            } else {
+                Err(IoError::new(ErrorKind::Other, "Request was sent to wrong daemon"))
+            }
+        }
+        Pool::TransitionPrepare { current, next } => {
+            // We are waiting for the transition
+            // During that time both locations will be getting requests from
+            // clients, so keep handling them at the old location
+            let current_group_id = current.object_to_group(object_id);
+            let current_device = current.group_to_device(&current_group_id, 0);
+            if &current_device == device_id {
+                let secondaries = get_secondaries(current, pool_name, &current_group_id);
+                return Ok(Location::Here(secondaries));
+            }
+
+            let next_group_id = next.object_to_group(object_id);
+            let next_device = next.group_to_device(&next_group_id, 0);
+            if &next_device == device_id {
+                return Ok(Location::Forward(current_device));
+            }
+
+            Err(IoError::new(ErrorKind::Other, "Request was sent to wrong daemon"))
+        }
+        Pool::Transition { previous, current } => {
+            // We are in transition
+            // We have given enough time to clients to stop sending to the old
+            // location, start handling requests at new location
+            let current_group_id = current.object_to_group(object_id);
+            let current_device = current.group_to_device(&current_group_id, 0);
+            if &current_device == device_id {
+                let previous_group_id = previous.object_to_group(object_id);
+                let previous_device = previous.group_to_device(&previous_group_id, 0);
+                let secondaries = get_secondaries(current, pool_name, &current_group_id);
+                Ok(Location::HereOrFallback(previous_device, secondaries))
+            } else {
+                Err(IoError::new(ErrorKind::Other, "Request was sent to wrong daemon"))
+            }
+        }
+    }
 }
 
 async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
