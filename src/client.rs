@@ -10,7 +10,6 @@ use tokio::net::UdpSocket;
 use tokio::sync::oneshot::{Sender, channel};
 
 use crate::{DeviceId, ObjectId, PoolName};
-use crate::crypto::KeyPair;
 use crate::storage_map;
 
 #[derive(Clone)]
@@ -72,8 +71,6 @@ pub struct ClientInner {
     /// The storage daemons.
     storage_daemons: HashMap<DeviceId, StorageDaemon>,
 
-    storage_daemon_key: KeyPair,
-
     /// Map of channels to get responses from the reading task.
     response_channels: HashMap<(SocketAddr, u32), (Instant, Sender<Vec<u8>>)>,
 }
@@ -81,7 +78,6 @@ pub struct ClientInner {
 struct StorageDaemon {
     address: SocketAddr,
     client_counter: u32,
-    server_counter: u32,
 }
 
 const TIMEOUT: Duration = Duration::from_millis(200);
@@ -260,11 +256,6 @@ impl Client {
 }
 
 pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -> Result<Client, Box<dyn std::error::Error>> {
-    let storage_daemon_key = KeyPair {
-        mac_key: *b"0123456789abcdef",
-        encrypt_key: *b"0123456789abcdef",
-    };
-
     let device_id = DeviceId([0; 16]);
     let pool_config = storage_map::StorageConfiguration {
         groups: 128,
@@ -276,7 +267,6 @@ pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -
         StorageDaemon {
             address: storage_daemon_address,
             client_counter: 0,
-            server_counter: 0,
         },
     );
 
@@ -286,7 +276,6 @@ pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -
         pool,
         pool_config,
         storage_daemons,
-        storage_daemon_key,
         response_channels: HashMap::new(),
     };
     let client_inner = Arc::new(Mutex::new(client_inner));
