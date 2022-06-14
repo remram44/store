@@ -5,12 +5,12 @@ use crate::hash::{compute_hash, compute_object_hash};
 ///
 /// This contains the tree used to map a group to a device, as well as the
 /// current number of groups.
-pub struct StorageConfiguration {
+pub struct StorageMap {
     pub(crate) groups: usize,
     pub(crate) map_root: Node,
 }
 
-impl StorageConfiguration {
+impl StorageMap {
     pub fn object_to_group(&self, object_id: &ObjectId) -> GroupId {
         let h = compute_object_hash(object_id);
         GroupId(h % self.groups as u32)
@@ -147,7 +147,7 @@ pub fn build_straw_bucket(children: Vec<NodeEntry>) -> Bucket {
 
 #[cfg(test)]
 mod tests {
-    use super::{Algorithm, Bucket, DeviceId, GroupId, Node, NodeEntry, ObjectId, StorageConfiguration, build_straw_bucket, compute_location};
+    use super::{Algorithm, Bucket, DeviceId, GroupId, Node, NodeEntry, ObjectId, StorageMap, build_straw_bucket, compute_location};
 
     fn object_id(num: usize) -> ObjectId {
         ObjectId(vec![
@@ -184,7 +184,7 @@ mod tests {
 
         // Map objects to groups
         const GROUPS1: usize = 128;
-        let map1 = StorageConfiguration {
+        let map1 = StorageMap {
             groups: GROUPS1,
             map_root: Node::Device(DeviceId([1; 16])),
         };
@@ -201,7 +201,7 @@ mod tests {
 
         // Map objects to groups using a different number of groups
         const GROUPS2: usize = 256;
-        let map2 = StorageConfiguration {
+        let map2 = StorageMap {
             groups: GROUPS2,
             map_root: Node::Device(DeviceId([1; 16])),
         };

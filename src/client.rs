@@ -10,7 +10,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::oneshot::{Sender, channel};
 
 use crate::{DeviceId, ObjectId, PoolName};
-use crate::storage_map;
+use crate::storage_map::{self, StorageMap};
 
 #[derive(Clone)]
 struct Metrics {
@@ -66,7 +66,7 @@ pub struct ClientInner {
     pool: PoolName,
 
     /// The storage map for the pool we care about.
-    pool_config: storage_map::StorageConfiguration,
+    storage_map: StorageMap,
 
     /// The storage daemons.
     storage_daemons: HashMap<DeviceId, StorageDaemon>,
@@ -214,8 +214,8 @@ impl Client {
 
     async fn do_request<F: FnOnce(&mut Vec<u8>)>(&self, object_id: &ObjectId, write_request: F) -> Result<Vec<u8>, IoError> {
         let mut client = self.client.lock().unwrap();
-        let group_id = client.pool_config.object_to_group(object_id);
-        let device_id = client.pool_config.group_to_device(&group_id, 0);
+        let group_id = client.storage_map.object_to_group(object_id);
+        let device_id = client.storage_map.group_to_device(&group_id, 0);
         let daemon = client.storage_daemons.get_mut(&device_id).unwrap();
         let counter = daemon.client_counter;
         daemon.client_counter += 1;
@@ -257,7 +257,7 @@ impl Client {
 
 pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -> Result<Client, Box<dyn std::error::Error>> {
     let device_id = DeviceId([0; 16]);
-    let pool_config = storage_map::StorageConfiguration {
+    let storage_map = StorageMap {
         groups: 128,
         map_root: storage_map::Node::Device(device_id.clone()),
     };
@@ -274,7 +274,7 @@ pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -
         masters: vec![],
         master_connection: None,
         pool,
-        pool_config,
+        storage_map,
         storage_daemons,
         response_channels: HashMap::new(),
     };

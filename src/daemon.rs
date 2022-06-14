@@ -10,6 +10,7 @@ use tokio::net::UdpSocket;
 
 use crate::{DeviceId, ObjectId, PoolName};
 use super::storage::StorageBackend;
+use super::storage_map::{Node, StorageMap};
 
 #[derive(Clone)]
 struct Metrics {
@@ -68,11 +69,22 @@ pub struct StorageDaemon {
     /// Addresses of master server(s).
     masters: Vec<SocketAddr>,
 
-    /// Active storage daemon connections.
-    storage_daemons: HashMap<DeviceId, StorageDaemonPeer>,
+    /// Storage pools.
+    pools: HashMap<PoolName, Pool>,
+
+    /// Addresses of all storage daemons.
+    storage_daemons: HashMap<DeviceId, SocketAddr>,
 }
 
-struct StorageDaemonPeer {
+pub enum Pool {
+    /// Normal operation, a single map is in use.
+    Normal(StorageMap),
+
+    /// Preparing to transition to a new map, forward request to old location.
+    TransitionPrepare { current: StorageMap, next: StorageMap },
+
+    /// Transitioning to a new map, read from old location if necessary.
+    Transition { previous: StorageMap, current: StorageMap },
 }
 
 pub async fn run_storage_daemon(
@@ -86,11 +98,18 @@ pub async fn run_storage_daemon(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let storage_backend: Arc<dyn StorageBackend> = storage_backend.into();
 
+    let storage_map = StorageMap {
+        groups: 128,
+        map_root: Node::Device(device_id.clone()),
+    };
+    let mut pools = HashMap::new();
+    pools.insert(PoolName("default".to_owned()), Pool::Normal(storage_map));
     let storage_daemon = StorageDaemon {
         device_id,
         peer_address,
         listen_address,
         masters: vec![],
+        pools,
         storage_daemons: HashMap::new(),
     };
     let storage_daemon = Arc::new(Mutex::new(storage_daemon));
