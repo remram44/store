@@ -101,6 +101,7 @@ pub async fn run_storage_daemon(
     let storage_map = StorageMap {
         generation: 1,
         groups: 128,
+        replicas: 1,
         map_root: Node::Device(device_id.clone()),
     };
     let mut pools = HashMap::new();

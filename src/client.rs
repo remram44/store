@@ -260,6 +260,7 @@ pub async fn create_client(storage_daemon_address: SocketAddr, pool: PoolName) -
     let storage_map = StorageMap {
         generation: 1,
         groups: 128,
+        replicas: 1,
         map_root: storage_map::Node::Device(device_id.clone()),
     };
     let mut storage_daemons = HashMap::new();

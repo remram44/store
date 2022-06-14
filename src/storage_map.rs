@@ -8,6 +8,7 @@ use crate::hash::{compute_hash, compute_object_hash};
 pub struct StorageMap {
     pub generation: u32,
     pub groups: usize,
+    pub replicas: u32,
     pub map_root: Node,
 }
 
@@ -188,6 +189,7 @@ mod tests {
         let map1 = StorageMap {
             generation: 1,
             groups: GROUPS1,
+            replicas: 1,
             map_root: Node::Device(DeviceId([1; 16])),
         };
         let mut group_counts1 = [0; GROUPS1];
@@ -206,6 +208,7 @@ mod tests {
         let map2 = StorageMap {
             generation: 1,
             groups: GROUPS2,
+            replicas: 1,
             map_root: Node::Device(DeviceId([1; 16])),
         };
         let mut group_counts2 = [0; GROUPS2];
