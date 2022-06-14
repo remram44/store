@@ -238,6 +238,8 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
         PoolName(pool_name)
     };
 
+    let mut response = Vec::new();
+
     let command = reader.read_u8()?;
     match command {
         0x01 => { // read_object
@@ -247,11 +249,10 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 reader.read_exact(&mut object_id)?;
                 ObjectId(object_id)
             };
-
             debug!("read_object {:?}", object_id);
+
             let object = storage_backend.read_object(&pool_name, &object_id)?;
             METRICS.reads.inc();
-            let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             match object {
                 Some(data) => {
@@ -260,7 +261,6 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 }
                 None => response.write_u8(0).unwrap(),
             }
-            socket.send_to(&response, addr).await?;
         }
         0x02 => { // read_part
             let object_id = {
@@ -269,14 +269,12 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 reader.read_exact(&mut object_id)?;
                 ObjectId(object_id)
             };
-
             let offset = reader.read_u32::<BigEndian>()?;
             let len = reader.read_u32::<BigEndian>()?;
-
             debug!("read_part {:?} {} {}", object_id, offset, len);
+
             let object = storage_backend.read_part(&pool_name, &object_id, offset as usize, len as usize)?;
             METRICS.reads.inc();
-            let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
             match object {
                 Some(data) => {
@@ -285,7 +283,6 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 }
                 None => response.write_u8(0).unwrap(),
             }
-            socket.send_to(&response, addr).await?;
         }
         0x03 => { // write_object
             let object_id = {
@@ -294,15 +291,12 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 reader.read_exact(&mut object_id)?;
                 ObjectId(object_id)
             };
-
             let data = &msg[reader.position() as usize..];
-
             debug!("write_object {:?} {}", object_id, data.len());
+
             storage_backend.write_object(&pool_name, &object_id, data)?;
             METRICS.writes.inc();
-            let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
-            socket.send_to(&response, addr).await?;
         }
         0x04 => { // write_part
             let object_id = {
@@ -318,9 +312,7 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             debug!("write_part {:?} {} {}", object_id, offset, data.len());
             storage_backend.write_part(&pool_name, &object_id, offset, data)?;
             METRICS.writes.inc();
-            let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
-            socket.send_to(&response, addr).await?;
         }
         0x05 => { // delete_object
             let object_id = {
@@ -329,19 +321,19 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
                 reader.read_exact(&mut object_id)?;
                 ObjectId(object_id)
             };
-
             debug!("delete_object {:?}", object_id);
+
             storage_backend.delete_object(&pool_name, &object_id)?;
             METRICS.writes.inc();
-            let mut response = Vec::with_capacity(4);
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
-            socket.send_to(&response, addr).await?;
         }
         _ => return Err(IoError::new(
             ErrorKind::InvalidData,
             format!("Unknown command 0x{:02x} from client", command),
         )),
     }
+
+    socket.send_to(&response, addr).await?;
 
     Ok(())
 }
