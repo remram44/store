@@ -1,5 +1,6 @@
 pub mod client;
 pub mod crypto;
+pub mod daemon;
 mod hash;
 pub mod master;
 pub mod metrics;

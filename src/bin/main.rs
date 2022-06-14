@@ -429,7 +429,7 @@ fn main() {
                 .unwrap();
         }
         Some("file-store") => {
-            use store::storage::daemon::run_storage_daemon;
+            use store::daemon::run_storage_daemon;
             use store::storage::file_store::create_file_store;
 
             let s_matches = matches.subcommand_matches("file-store").unwrap();
@@ -466,7 +466,7 @@ fn main() {
                 .unwrap();
         }
         Some("mem-store") => {
-            use store::storage::daemon::run_storage_daemon;
+            use store::daemon::run_storage_daemon;
             use store::storage::mem_store::create_mem_store;
 
             let s_matches = matches.subcommand_matches("mem-store").unwrap();
@@ -504,7 +504,7 @@ fn main() {
         }
         #[cfg(feature = "rocksdb")]
         Some("rocksdb-store") => {
-            use store::storage::daemon::run_storage_daemon;
+            use store::daemon::run_storage_daemon;
             use store::storage::rocksdb_store::create_rocksdb_store;
 
             let s_matches = matches.subcommand_matches("rocksdb-store").unwrap();

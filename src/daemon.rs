@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
 
 use crate::{DeviceId, ObjectId, PoolName};
-use super::StorageBackend;
+use super::storage::StorageBackend;
 
 #[derive(Clone)]
 struct Metrics {
