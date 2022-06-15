@@ -6,7 +6,9 @@ use std::io::{Cursor, Error as IoError, ErrorKind, Read};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
+use tokio::sync::oneshot::{Sender, channel};
 
 use crate::{DeviceId, GroupId, ObjectId, PoolName};
 use super::storage::StorageBackend;
@@ -56,6 +58,8 @@ lazy_static! {
     };
 }
 
+const TIMEOUT: Duration = Duration::from_millis(5000);
+
 pub struct StorageDaemon {
     /// The random ID for this storage daemon.
     device_id: DeviceId,
@@ -73,7 +77,13 @@ pub struct StorageDaemon {
     pools: HashMap<PoolName, Pool>,
 
     /// Addresses of all storage daemons.
-    storage_daemons: HashMap<DeviceId, SocketAddr>,
+    storage_daemons: HashMap<DeviceId, Arc<Mutex<PeerDaemon>>>,
+}
+
+pub struct PeerDaemon {
+    address: SocketAddr,
+    counter: u32,
+    response_channels: HashMap<u32, (Instant, Sender<Vec<u8>>)>,
 }
 
 pub enum Pool {
@@ -157,20 +167,28 @@ async fn handle_client_request(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex
 }
 
 enum Location {
-    /// We are the only primary for this object.
-    Here(Vec<DeviceId>),
+    /// We are the primary, but we can request from previous location if set.
+    HereOrFallback(Option<(DeviceId, Arc<Mutex<PeerDaemon>>)>, Vec<(DeviceId, Arc<Mutex<PeerDaemon>>)>),
     /// Request should be forwarded elsewhere.
-    Forward(DeviceId),
-    /// We are the primary but we can request from previous location if needed.
-    HereOrFallback(DeviceId, Vec<DeviceId>),
+    Forward(Arc<Mutex<PeerDaemon>>),
 }
 
-fn get_secondaries(map: &StorageMap, pool_name: &PoolName, group_id: &GroupId) -> Vec<DeviceId> {
-    (1..map.replicas).map(|replica_id| map.group_to_device(group_id, replica_id)).collect()
+fn get_secondaries(map: &StorageMap, storage_daemons: &HashMap<DeviceId, Arc<Mutex<PeerDaemon>>>, group_id: &GroupId) -> Result<Vec<(DeviceId, Arc<Mutex<PeerDaemon>>)>, IoError> {
+    let mut secondaries = Vec::with_capacity(map.replicas as usize - 1);
+    for replica_id in 1..map.replicas {
+        let device_id = map.group_to_device(group_id, replica_id);
+        let peer = storage_daemons
+            .get(&device_id)
+            .ok_or(IoError::new(ErrorKind::NotFound, "No address for device"))?
+            .clone();
+        secondaries.push((device_id, peer));
+    }
+    Ok(secondaries)
 }
 
-fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName, object_id: &ObjectId, device_id: &DeviceId) -> Result<Location, IoError> {
+fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName, object_id: &ObjectId) -> Result<Location, IoError> {
     let daemon = storage_daemon.lock().unwrap();
+    let device_id = &daemon.device_id;
     let pool = match daemon.pools.get(pool_name) {
         Some(p) => p,
         None => return Err(IoError::new(ErrorKind::InvalidData, "Unknown pool")),
@@ -182,8 +200,8 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
             let group_id = map.object_to_group(object_id);
             let target_device = map.group_to_device(&group_id, 0);
             if &target_device == device_id {
-                let secondaries = get_secondaries(map, pool_name, &group_id);
-                Ok(Location::Here(secondaries))
+                let secondaries = get_secondaries(map, &daemon.storage_daemons, &group_id)?;
+                Ok(Location::HereOrFallback(None, secondaries))
             } else {
                 Err(IoError::new(ErrorKind::Other, "Request was sent to wrong daemon"))
             }
@@ -195,14 +213,18 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
             let current_group_id = current.object_to_group(object_id);
             let current_device = current.group_to_device(&current_group_id, 0);
             if &current_device == device_id {
-                let secondaries = get_secondaries(current, pool_name, &current_group_id);
-                return Ok(Location::Here(secondaries));
+                let secondaries = get_secondaries(current, &daemon.storage_daemons, &current_group_id)?;
+                return Ok(Location::HereOrFallback(None, secondaries));
             }
 
             let next_group_id = next.object_to_group(object_id);
             let next_device = next.group_to_device(&next_group_id, 0);
             if &next_device == device_id {
-                return Ok(Location::Forward(current_device));
+                let current_addr = daemon.storage_daemons
+                    .get(&current_device)
+                    .ok_or(IoError::new(ErrorKind::NotFound, "No address for device"))?
+                    .clone();
+                return Ok(Location::Forward(current_addr));
             }
 
             Err(IoError::new(ErrorKind::Other, "Request was sent to wrong daemon"))
@@ -216,8 +238,12 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
             if &current_device == device_id {
                 let previous_group_id = previous.object_to_group(object_id);
                 let previous_device = previous.group_to_device(&previous_group_id, 0);
-                let secondaries = get_secondaries(current, pool_name, &current_group_id);
-                Ok(Location::HereOrFallback(previous_device, secondaries))
+                let previous_peer = daemon.storage_daemons
+                    .get(&previous_device)
+                    .ok_or(IoError::new(ErrorKind::NotFound, "No address for device"))?
+                    .clone();
+                let secondaries = get_secondaries(current, &daemon.storage_daemons, &current_group_id)?;
+                Ok(Location::HereOrFallback(Some((previous_device, previous_peer)), secondaries))
             } else {
                 Err(IoError::new(ErrorKind::Other, "Request was sent to wrong daemon"))
             }
@@ -225,7 +251,7 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
     }
 }
 
-async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
+async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc<Mutex<StorageDaemon>>, storage_backend: Arc<dyn StorageBackend>, client_addr: SocketAddr, msg: Vec<u8>) -> Result<(), IoError> {
     let mut reader = Cursor::new(&msg);
     let msg_ctr = reader.read_u32::<BigEndian>()?;
 
@@ -238,8 +264,6 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
         PoolName(pool_name)
     };
 
-    let mut response = Vec::new();
-
     let command = reader.read_u8()?;
     match command {
         0x01 => { // read_object
@@ -251,15 +275,25 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             };
             debug!("read_object {:?}", object_id);
 
-            let object = storage_backend.read_object(&pool_name, &object_id)?;
-            METRICS.reads.inc();
-            response.write_u32::<BigEndian>(msg_ctr).unwrap();
-            match object {
-                Some(data) => {
-                    response.write_u8(1).unwrap();
-                    response.extend_from_slice(&data);
+            match get_location(storage_daemon, &pool_name, &object_id)? {
+                Location::HereOrFallback(fallback, _secondaries) => {
+                    let object = storage_backend.read_object(&pool_name, &object_id)?;
+                    METRICS.reads.inc();
+                    let mut response = Vec::new();
+                    response.write_u32::<BigEndian>(msg_ctr).unwrap();
+                    match object {
+                        Some(data) => {
+                            response.write_u8(1).unwrap();
+                            response.extend_from_slice(&data);
+                        }
+                        // TODO: fallback
+                        None => response.write_u8(0).unwrap(),
+                    }
+                    socket.send_to(&response, client_addr).await?;
                 }
-                None => response.write_u8(0).unwrap(),
+                Location::Forward(peer) => {
+                    forward_request(&socket, msg_ctr, peer, &msg[4..], client_addr).await?;
+                }
             }
         }
         0x02 => { // read_part
@@ -273,15 +307,25 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             let len = reader.read_u32::<BigEndian>()?;
             debug!("read_part {:?} {} {}", object_id, offset, len);
 
-            let object = storage_backend.read_part(&pool_name, &object_id, offset as usize, len as usize)?;
-            METRICS.reads.inc();
-            response.write_u32::<BigEndian>(msg_ctr).unwrap();
-            match object {
-                Some(data) => {
-                    response.write_u8(1).unwrap();
-                    response.extend_from_slice(&data);
+            match get_location(storage_daemon, &pool_name, &object_id)? {
+                Location::HereOrFallback(fallback, _secondaries) => {
+                    let object = storage_backend.read_part(&pool_name, &object_id, offset as usize, len as usize)?;
+                    METRICS.reads.inc();
+                    let mut response = Vec::new();
+                    response.write_u32::<BigEndian>(msg_ctr).unwrap();
+                    match object {
+                        Some(data) => {
+                            response.write_u8(1).unwrap();
+                            response.extend_from_slice(&data);
+                        }
+                        // TODO: fallback
+                        None => response.write_u8(0).unwrap(),
+                    }
+                    socket.send_to(&response, client_addr).await?;
                 }
-                None => response.write_u8(0).unwrap(),
+                Location::Forward(peer) => {
+                    forward_request(&socket, msg_ctr, peer, &msg[4..], client_addr).await?;
+                }
             }
         }
         0x03 => { // write_object
@@ -294,9 +338,19 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
             let data = &msg[reader.position() as usize..];
             debug!("write_object {:?} {}", object_id, data.len());
 
-            storage_backend.write_object(&pool_name, &object_id, data)?;
-            METRICS.writes.inc();
-            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            match get_location(storage_daemon, &pool_name, &object_id)? {
+                Location::HereOrFallback(_fallback, _secondaries) => {
+                    storage_backend.write_object(&pool_name, &object_id, data)?;
+                    METRICS.writes.inc();
+                    // TODO: replicate to secondaries
+                    let mut response = Vec::new();
+                    response.write_u32::<BigEndian>(msg_ctr).unwrap();
+                    socket.send_to(&response, client_addr).await?;
+                }
+                Location::Forward(peer) => {
+                    forward_request(&socket, msg_ctr, peer, &msg[4..], client_addr).await?;
+                }
+            }
         }
         0x04 => { // write_part
             let object_id = {
@@ -308,11 +362,22 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             let offset = reader.read_u32::<BigEndian>()? as usize;
             let data = &msg[reader.position() as usize..];
-
             debug!("write_part {:?} {} {}", object_id, offset, data.len());
-            storage_backend.write_part(&pool_name, &object_id, offset, data)?;
-            METRICS.writes.inc();
-            response.write_u32::<BigEndian>(msg_ctr).unwrap();
+
+            match get_location(storage_daemon, &pool_name, &object_id)? {
+                Location::HereOrFallback(fallback, secondaries) => {
+                    // TODO: fallback
+                    storage_backend.write_part(&pool_name, &object_id, offset, data)?;
+                    METRICS.writes.inc();
+                    // TODO: replicate to secondaries
+                    let mut response = Vec::new();
+                    response.write_u32::<BigEndian>(msg_ctr).unwrap();
+                    socket.send_to(&response, client_addr).await?;
+                }
+                Location::Forward(peer) => {
+                    forward_request(&socket, msg_ctr, peer, &msg[4..], client_addr).await?;
+                }
+            }
         }
         0x05 => { // delete_object
             let object_id = {
@@ -325,7 +390,9 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
 
             storage_backend.delete_object(&pool_name, &object_id)?;
             METRICS.writes.inc();
+            let mut response = Vec::new();
             response.write_u32::<BigEndian>(msg_ctr).unwrap();
+            socket.send_to(&response, client_addr).await?;
         }
         _ => return Err(IoError::new(
             ErrorKind::InvalidData,
@@ -333,7 +400,49 @@ async fn handle_client_request_inner(socket: Arc<UdpSocket>, storage_daemon: Arc
         )),
     }
 
-    socket.send_to(&response, addr).await?;
+    Ok(())
+}
+
+async fn forward_request(socket: &UdpSocket, client_ctr: u32, peer: Arc<Mutex<PeerDaemon>>, request: &[u8], client_addr: SocketAddr) -> Result<(), IoError> {
+    let (address, counter, new_request, mut recv) = {
+        let mut peer_locked = peer.lock().unwrap();
+        let address = peer_locked.address.clone();
+
+        // Get a request ID to read the response
+        let counter = peer_locked.counter;
+        peer_locked.counter += 1;
+
+        // Assemble the request
+        let mut new_request = Vec::with_capacity(4 + request.len());
+        new_request.write_u32::<BigEndian>(counter).unwrap();
+        new_request.extend_from_slice(request);
+
+        // Register our counter to get the response
+        let (send, recv) = channel();
+        peer_locked.response_channels.insert(counter, (Instant::now(), send));
+
+        // Unlock the mutex during network operations
+
+        debug!("Sending forwarded request {}, size {}", counter, new_request.len());
+        (address, counter, new_request, recv)
+    };
+
+    // Send the request
+    socket.send_to(&new_request, address).await?;
+
+    // Wait for the response
+    let mut response = tokio::select! {
+        response = &mut recv => response.unwrap(),
+        _ = tokio::time::sleep(TIMEOUT) => {
+            debug!("Timeout forwarding request {}", counter);
+            return Err(IoError::new(ErrorKind::TimedOut, "Timeout waiting for response to forwarded request"));
+        }
+    };
+
+    // Send response to client
+    Cursor::new(&mut response[0..4]).write_u32::<BigEndian>(client_ctr).unwrap();
+    debug!("Sending forwarded response to client, size {}", response.len());
+    socket.send_to(&response, client_addr).await?;
 
     Ok(())
 }
