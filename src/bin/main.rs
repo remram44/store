@@ -88,55 +88,6 @@ fn main() {
                     .allow_invalid_utf8(true)
             )
         )
-        .subcommand(Command::new("file-store")
-            .about("Start storage daemon, storing object data in files")
-            .arg(
-                Arg::new("peer-address")
-                    .long("peer-address")
-                    .help("Address to listen on for storage daemons")
-                    .required(true)
-                    .takes_value(true)
-            )
-            .arg(
-                Arg::new("peer-cert")
-                    .long("peer-cert")
-                    .help("Path to certificate to present for peer connections")
-                    .required(true)
-                    .takes_value(true)
-                    .allow_invalid_utf8(true)
-            )
-            .arg(
-                Arg::new("peer-key")
-                    .long("peer-key")
-                    .help("Path to key for peer-cert")
-                    .required(true)
-                    .takes_value(true)
-                    .allow_invalid_utf8(true)
-            )
-            .arg(
-                Arg::new("peer-ca-cert")
-                    .long("peer-ca-cert")
-                    .help("Path to certificate to use to validate peer connections")
-                    .required(true)
-                    .takes_value(true)
-                    .allow_invalid_utf8(true)
-            )
-            .arg(
-                Arg::new("listen-address")
-                    .long("listen-address")
-                    .help("Address to listen on for clients")
-                    .required(true)
-                    .takes_value(true)
-            )
-            .arg(
-                Arg::new("dir")
-                    .long("dir")
-                    .help("Directory where to store object data")
-                    .required(true)
-                    .takes_value(true)
-                    .allow_invalid_utf8(true)
-            )
-        )
         .subcommand(Command::new("mem-store")
             .about("Start storage daemon, storing object data memory (not persistent)")
             .arg(
@@ -425,43 +376,6 @@ fn main() {
                     listen_address,
                     listen_cert,
                     listen_key,
-                ))
-                .unwrap();
-        }
-        Some("file-store") => {
-            use store::daemon::run_storage_daemon;
-            use store::storage::file_store::create_file_store;
-
-            let s_matches = matches.subcommand_matches("file-store").unwrap();
-            let peer_address = s_matches.value_of("peer-address").unwrap();
-            let peer_address: SocketAddr = check!(
-                peer_address.parse(),
-                "Invalid peer-address",
-            );
-            let peer_cert = s_matches.value_of_os("peer-cert").unwrap();
-            let peer_cert = Path::new(peer_cert);
-            let peer_key = s_matches.value_of_os("peer-key").unwrap();
-            let peer_key = Path::new(peer_key);
-            let peer_ca_cert = s_matches.value_of_os("peer-ca-cert").unwrap();
-            let peer_ca_cert = Path::new(peer_ca_cert);
-            let listen_address = s_matches.value_of("listen-address").unwrap();
-            let listen_address: SocketAddr =
-                check!(listen_address.parse(), "Invalid listen-address",);
-            let storage_dir = s_matches.value_of_os("dir").unwrap();
-            let storage_dir = Path::new(storage_dir);
-            let (storage_backend, device_id) = check!(create_file_store(storage_dir));
-
-            runtime
-                .build()
-                .unwrap()
-                .block_on(run_storage_daemon(
-                    peer_address,
-                    peer_cert,
-                    peer_key,
-                    peer_ca_cert,
-                    listen_address,
-                    Box::new(storage_backend),
-                    device_id,
                 ))
                 .unwrap();
         }

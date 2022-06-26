@@ -1,4 +1,3 @@
-pub mod file_store;
 pub mod mem_store;
 #[cfg(feature = "rocksdb")]
 pub mod rocksdb_store;
