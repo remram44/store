@@ -454,6 +454,11 @@ fn main() {
                 ))
                 .unwrap();
         }
+        #[cfg(not(feature = "rocksdb"))]
+        Some("rocksdb-store") => {
+            eprintln!("RocksDB support was not compiled in");
+            std::process::exit(1);
+        }
         Some("read") => {
             use store::client::create_client;
 
