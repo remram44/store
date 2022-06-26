@@ -215,7 +215,13 @@ impl Client {
     async fn do_request<F: FnOnce(&mut Vec<u8>)>(&self, object_id: &ObjectId, write_request: F) -> Result<Vec<u8>, IoError> {
         let mut client = self.client.lock().unwrap();
         let group_id = client.storage_map.object_to_group(object_id);
-        let device_id = client.storage_map.group_to_device(&group_id, 0);
+        let device_id = match client.storage_map.group_to_first_device(&group_id) {
+            Some(device_id) => device_id,
+            None => return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "No device for object",
+            )),
+        };
         let daemon = client.storage_daemons.get_mut(&device_id).unwrap();
         let counter = daemon.client_counter;
         daemon.client_counter += 1;

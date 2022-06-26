@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{DeviceId, GroupId, ObjectId};
 use crate::hash::{compute_hash, compute_object_hash};
 
@@ -18,8 +20,24 @@ impl StorageMap {
         GroupId(h % self.groups as u32)
     }
 
-    pub fn group_to_device(&self, group_id: &GroupId, replica_id: u32) -> DeviceId {
-        compute_location(&self.map_root, group_id, replica_id, 0)
+    /// Gets the devices handling the given object group, in order.
+    pub fn group_to_devices(&self, group_id: &GroupId, replicas: usize) -> Vec<DeviceId> {
+        let mut devices = Vec::with_capacity(replicas);
+        let mut already_picked = HashSet::new();
+        for i in 0..replicas {
+            match compute_location(&self.map_root, group_id, i as u32, 0, &mut already_picked) {
+                Some(device) => devices.push(device),
+                None => break,
+            }
+        }
+        devices
+    }
+
+    /// Gets the first device handling the given object group.
+    ///
+    /// Shortcut for `group_to_devices.get(0)`
+    pub fn group_to_first_device(&self, group_id: &GroupId) -> Option<DeviceId> {
+        compute_location(&self.map_root, group_id, 0, 0, &mut HashSet::new())
     }
 }
 
@@ -33,8 +51,18 @@ pub enum Node {
 /// Internal node in the storage map, allows picking one of multiple children.
 #[derive(Clone, Debug)]
 pub struct Bucket {
+    pub id: u32,
     pub algorithm: Algorithm,
+    pub pick_mode: PickMode,
     pub children: Vec<NodeEntry>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PickMode {
+    /// Pseudo-random mode, pick whatever the hash function gives us.
+    PseudoRandom,
+    /// Don't pick the same child twice, fail instead.
+    NeverRepeat,
 }
 
 #[derive(Clone, Debug)]
@@ -48,80 +76,111 @@ pub enum Algorithm {
     Uniform,
     Straw(Vec<u32>),
     List,
+    Fallback,
 }
 
-fn draw_straw(group_id: &GroupId, replica_num: u32, level: u32, idx: usize, weight: u32) -> u32 {
-    let hash = compute_hash(level, group_id, replica_num, idx);
+fn draw_straw(group_id: &GroupId, replica_num: u32, level: u32, attempt: u32, idx: usize, weight: u32) -> u32 {
+    let hash = compute_hash(level, group_id, replica_num, attempt, idx);
     hash % weight
 }
 
-fn compute_location(node: &Node, group_id: &GroupId, replica_num: u32, level: u32) -> DeviceId {
+fn compute_location(node: &Node, group_id: &GroupId, replica_num: u32, level: u32, already_picked: &mut HashSet<(u32, u32)>) -> Option<DeviceId> {
     match node {
-        &Node::Device(ref id) => id.clone(),
+        &Node::Device(ref id) => Some(id.clone()),
         &Node::Bucket(ref bucket) => {
-            match bucket.algorithm {
-                Algorithm::Uniform => {
-                    // Hash the input
-                    let hash = compute_hash(level, group_id, replica_num, 0);
-
-                    // Pick the entry
-                    let index = hash as usize % bucket.children.len();
-                    compute_location(
-                        &bucket.children[index].node,
-                        group_id,
-                        replica_num,
-                        level + 1,
-                    )
-                }
-                Algorithm::List => {
-                    // Compute total weight
-                    let total_weight: u32 = bucket.children.iter().map(|e| e.weight).sum();
-
-                    // Draw
-                    let mut hash = compute_hash(level, group_id, replica_num, 0) % total_weight;
-                    for (i, child) in bucket.children[0..bucket.children.len() - 1].iter().enumerate() {
-                        if hash < child.weight {
-                            return compute_location(
-                                &bucket.children[i].node,
-                                group_id,
-                                replica_num,
-                                level + 1,
-                            );
-                        }
-                        hash -= child.weight;
-                    }
-                    compute_location(
-                        &bucket.children[bucket.children.len() - 1].node,
-                        group_id,
-                        replica_num,
-                        level + 1,
-                    )
-                }
-                Algorithm::Straw(ref factors) => {
-                    // Draw straws for every entry, scaled by the factors
-                    let mut best = 0;
-                    let mut best_straw = draw_straw(group_id, replica_num, level, 0, factors[0]);
-                    for i in 1..bucket.children.len() {
-                        let straw = draw_straw(group_id, replica_num, level, i, factors[i]);
-                        if straw > best_straw {
-                            best = i;
-                            best_straw = straw;
+            let mut attempt = 0;
+            loop {
+                // Check that there are still children to be picked
+                if let PickMode::NeverRepeat = bucket.pick_mode {
+                    for i in 0..bucket.children.len() {
+                        if already_picked.contains(&(bucket.id, i as u32)) {
+                            return None;
                         }
                     }
-
-                    compute_location(
-                        &bucket.children[best].node,
-                        group_id,
-                        replica_num,
-                        level + 1,
-                    )
                 }
+
+                // Compute location based on bucket's algorithm
+                let index = compute_location_in_bucket(
+                    bucket,
+                    group_id,
+                    replica_num,
+                    level,
+                    attempt,
+                );
+
+                // Avoid repeats by looping if child has already been picked
+                if let PickMode::NeverRepeat = bucket.pick_mode {
+                    // Mark it
+                    let was_already_marked = !already_picked.insert((bucket.id, index as u32));
+
+                    // Skip if already marked
+                    if was_already_marked {
+                        attempt += 1;
+                        continue;
+                    }
+                }
+
+                // Recursively process that child
+                if let Some(device) = compute_location(
+                    &bucket.children[index].node,
+                    group_id,
+                    replica_num,
+                    level + 1,
+                    already_picked,
+                ) {
+                    return Some(device);
+                }
+
+                attempt += 1;
             }
         }
     }
 }
 
-pub fn build_straw_bucket(children: Vec<NodeEntry>) -> Bucket {
+fn compute_location_in_bucket(bucket: &Bucket, group_id: &GroupId, replica_num: u32, level: u32, attempt: u32) -> usize {
+    match bucket.algorithm {
+        Algorithm::Uniform => {
+            // Hash the input
+            let hash = compute_hash(level, group_id, replica_num, attempt, 0);
+
+            // Pick the entry
+            hash as usize % bucket.children.len()
+        }
+        Algorithm::List => {
+            // Compute total weight
+            let total_weight: u32 = bucket.children.iter().map(|e| e.weight).sum();
+
+            // Draw
+            let mut hash = compute_hash(level, group_id, replica_num, attempt, 0) % total_weight;
+            for (i, child) in bucket.children[0..bucket.children.len() - 1].iter().enumerate() {
+                if hash < child.weight {
+                    return i;
+                }
+                hash -= child.weight;
+            }
+            bucket.children.len() - 1
+        }
+        Algorithm::Straw(ref factors) => {
+            // Draw straws for every entry, scaled by the factors
+            let mut best = 0;
+            let mut best_straw = draw_straw(group_id, replica_num, level, attempt, 0, factors[0]);
+            for i in 1..bucket.children.len() {
+                let straw = draw_straw(group_id, replica_num, level, attempt, i, factors[i]);
+                if straw > best_straw {
+                    best = i;
+                    best_straw = straw;
+                }
+            }
+
+            best
+        }
+        Algorithm::Fallback => {
+            attempt as usize
+        }
+    }
+}
+
+pub fn build_straw_bucket(children: Vec<NodeEntry>, id: u32, pick_mode: PickMode) -> Bucket {
     // Sort weights from highest to lowest
     let mut order: Vec<usize> = (0..children.len()).collect();
     order.sort_by_key(|&i| -(children[i].weight as i32));
@@ -142,14 +201,17 @@ pub fn build_straw_bucket(children: Vec<NodeEntry>) -> Bucket {
     }
 
     Bucket {
+        id,
         algorithm: Algorithm::Straw(factors),
+        pick_mode,
         children: children,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Algorithm, Bucket, DeviceId, GroupId, Node, NodeEntry, ObjectId, StorageMap, build_straw_bucket, compute_location};
+    use std::collections::HashSet;
+    use super::{Algorithm, Bucket, DeviceId, GroupId, Node, NodeEntry, ObjectId, PickMode, StorageMap, build_straw_bucket, compute_location};
 
     fn object_id(num: usize) -> ObjectId {
         ObjectId(vec![
@@ -247,7 +309,9 @@ mod tests {
     fn test_uniform() {
         let root = Node::Bucket(
             Bucket {
+                id: 0,
                 algorithm: Algorithm::Uniform,
+                pick_mode: PickMode::PseudoRandom,
                 children: vec![
                     // Note that the weights do nothing
                     NodeEntry {
@@ -270,7 +334,7 @@ mod tests {
         let mut counts = [0; 3];
         const NUM: usize = 100000;
         for i in 0..NUM {
-            let device = compute_location(&root, &GroupId(i as u32), 0, 0);
+            let device = compute_location(&root, &GroupId(i as u32), 0, 0, &mut HashSet::new()).unwrap();
             counts[device.0[0] as usize - 1] += 1;
         }
 
@@ -281,7 +345,9 @@ mod tests {
     fn test_list() {
         let root = Node::Bucket(
             Bucket {
+                id: 0,
                 algorithm: Algorithm::List,
+                pick_mode: PickMode::PseudoRandom,
                 children: vec![
                     NodeEntry {
                         weight: 4,
@@ -307,7 +373,7 @@ mod tests {
         let mut counts = [0; 4];
         const NUM: usize = 100000;
         for i in 0..NUM {
-            let device = compute_location(&root, &GroupId(i as u32), 0, 0);
+            let device = compute_location(&root, &GroupId(i as u32), 0, 0, &mut HashSet::new()).unwrap();
             counts[device.0[0] as usize - 1] += 1;
         }
 
@@ -316,12 +382,16 @@ mod tests {
 
     #[test]
     fn test_straw() {
-        let root = build_straw_bucket(vec![
-            NodeEntry { weight: 1, node: Node::Device(DeviceId([1; 16])) },
-            NodeEntry { weight: 3, node: Node::Device(DeviceId([2; 16])) },
-            NodeEntry { weight: 4, node: Node::Device(DeviceId([3; 16])) },
-            NodeEntry { weight: 2, node: Node::Device(DeviceId([4; 16])) },
-        ]);
+        let root = build_straw_bucket(
+            vec![
+                NodeEntry { weight: 1, node: Node::Device(DeviceId([1; 16])) },
+                NodeEntry { weight: 3, node: Node::Device(DeviceId([2; 16])) },
+                NodeEntry { weight: 4, node: Node::Device(DeviceId([3; 16])) },
+                NodeEntry { weight: 2, node: Node::Device(DeviceId([4; 16])) },
+            ],
+            0,
+            PickMode::PseudoRandom,
+        );
         let factors = match root.algorithm {
             Algorithm::Straw(ref factors) => factors,
             _ => panic!("Invalid algorithm"),
@@ -337,7 +407,7 @@ mod tests {
         let mut counts = [0; 4];
         const NUM: usize = 1000000;
         for i in 0..NUM {
-            let device = compute_location(&root, &GroupId(i as u32), 0, 0);
+            let device = compute_location(&root, &GroupId(i as u32), 0, 0, &mut HashSet::new()).unwrap();
             counts[device.0[0] as usize - 1] += 1;
         }
 

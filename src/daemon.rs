@@ -175,8 +175,8 @@ enum Location {
 
 fn get_secondaries(map: &StorageMap, storage_daemons: &HashMap<DeviceId, Arc<Mutex<PeerDaemon>>>, group_id: &GroupId) -> Result<Vec<(DeviceId, Arc<Mutex<PeerDaemon>>)>, IoError> {
     let mut secondaries = Vec::with_capacity(map.replicas as usize - 1);
-    for replica_id in 1..map.replicas {
-        let device_id = map.group_to_device(group_id, replica_id);
+    let replicas = map.group_to_devices(group_id, map.replicas as usize);
+    for device_id in replicas.into_iter().skip(1) {
         let peer = storage_daemons
             .get(&device_id)
             .ok_or(IoError::new(ErrorKind::NotFound, "No address for device"))?
@@ -198,8 +198,8 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
     match pool {
         Pool::Normal(map) => {
             let group_id = map.object_to_group(object_id);
-            let target_device = map.group_to_device(&group_id, 0);
-            if &target_device == device_id {
+            let target_device = map.group_to_first_device(&group_id);
+            if target_device.as_ref() == Some(device_id) {
                 let secondaries = get_secondaries(map, &daemon.storage_daemons, &group_id)?;
                 Ok(Location::HereOrFallback(None, secondaries))
             } else {
@@ -211,15 +211,18 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
             // During that time both locations will be getting requests from
             // clients, so keep handling them at the old location
             let current_group_id = current.object_to_group(object_id);
-            let current_device = current.group_to_device(&current_group_id, 0);
+            let current_device = match current.group_to_first_device(&current_group_id) {
+                Some(device_id) => device_id,
+                None => return Err(IoError::new(ErrorKind::InvalidData, "No device for object")),
+            };
             if &current_device == device_id {
                 let secondaries = get_secondaries(current, &daemon.storage_daemons, &current_group_id)?;
                 return Ok(Location::HereOrFallback(None, secondaries));
             }
 
             let next_group_id = next.object_to_group(object_id);
-            let next_device = next.group_to_device(&next_group_id, 0);
-            if &next_device == device_id {
+            let next_device = next.group_to_first_device(&next_group_id);
+            if next_device.as_ref() == Some(device_id) {
                 let current_addr = daemon.storage_daemons
                     .get(&current_device)
                     .ok_or(IoError::new(ErrorKind::NotFound, "No address for device"))?
@@ -234,10 +237,13 @@ fn get_location(storage_daemon: Arc<Mutex<StorageDaemon>>, pool_name: &PoolName,
             // We have given enough time to clients to stop sending to the old
             // location, start handling requests at new location
             let current_group_id = current.object_to_group(object_id);
-            let current_device = current.group_to_device(&current_group_id, 0);
-            if &current_device == device_id {
+            let current_device = current.group_to_first_device(&current_group_id);
+            if current_device.as_ref() == Some(device_id) {
                 let previous_group_id = previous.object_to_group(object_id);
-                let previous_device = previous.group_to_device(&previous_group_id, 0);
+                let previous_device = match previous.group_to_first_device(&previous_group_id) {
+                    Some(device_id) => device_id,
+                    None => return Err(IoError::new(ErrorKind::InvalidData, "No device for object")),
+                };
                 let previous_peer = daemon.storage_daemons
                     .get(&previous_device)
                     .ok_or(IoError::new(ErrorKind::NotFound, "No address for device"))?

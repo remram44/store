@@ -3,7 +3,7 @@ use std::hash::Hasher;
 
 use crate::{GroupId, ObjectId};
 
-pub fn compute_hash(level: u32, group_id: &GroupId, replica_num: u32, idx: usize) -> u32 {
+pub fn compute_hash(level: u32, group_id: &GroupId, replica_num: u32, attempt: u32, idx: usize) -> u32 {
     let mut h = FxHasher::default();
     h.write_u32(level);
     h.write_u32(group_id.0);
